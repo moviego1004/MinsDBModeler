@@ -1,0 +1,14 @@
+{
+  "name": "@barker-modeler/model-core",
+  "version": "1.0.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "tsx --test tests/**/*.test.ts"
+  },
+  "dependencies": {
+    "yaml": "^2.3.4"
+  }
+}

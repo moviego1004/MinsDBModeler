@@ -1,0 +1,375 @@
+subject_area: QVI KERI/지갑
+notation: Barker logical model
+version: 0.1
+status: draft
+source_document: doc/DB설계/QVI KERI 지갑 논리 모델.md
+standard_document: doc/DB설계/QVI 상세 논리 모델 작성 기준.md
+baseline_conceptual_model: doc/DB설계/QVI 개념 모델.md
+
+relationship_notation:
+  participation:
+    optional_one: "0..1"
+    mandatory_one: "1..1"
+    optional_many: "0..M"
+    mandatory_many: "1..M"
+  identifying_rule: 부모 FK가 자식 PK에 포함되면 식별관계이다.
+  non_identifying_rule: FK가 필수라도 자식 PK에 포함되지 않으면 비식별 참조 관계이다.
+
+entities:
+  - name: 지갑
+    type: entity
+    identifier: 지갑번호
+    attributes:
+      - { name: 지갑번호, domain: 지갑번호, required: true, identifier: true }
+      - { name: 지갑유형코드, domain: 지갑유형코드, required: true }
+      - { name: 지갑상태코드, domain: 지갑상태코드, required: true }
+      - { name: 지갑명, domain: 명칭, required: false }
+      - { name: 지갑식별값, domain: 식별값, required: false }
+      - { name: 제공자명, domain: 명칭, required: false }
+      - { name: 생성일시, domain: 일시, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: 이용자지갑관계
+    type: relationship_entity
+    identifier: [이용자번호, 지갑번호, 지갑관계유형코드, 유효시작일시]
+    attributes:
+      - { name: 이용자번호, domain: 이용자번호, required: true, identifier: true, foreign_key: true }
+      - { name: 지갑번호, domain: 지갑번호, required: true, identifier: true, foreign_key: true }
+      - { name: 지갑관계유형코드, domain: 지갑관계유형코드, required: true, identifier: true }
+      - { name: 유효시작일시, domain: 일시, required: true, identifier: true }
+      - { name: 유효종료일시, domain: 일시, required: false }
+      - { name: 주지갑여부, domain: 여부, required: true }
+      - { name: 지갑관계상태코드, domain: 관계상태코드, required: true }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: KERI식별자
+    type: entity
+    identifier: KERI식별자번호
+    attributes:
+      - { name: KERI식별자번호, domain: KERI식별자번호, required: true, identifier: true }
+      - { name: AID, domain: AID, required: true }
+      - { name: 식별자별칭명, domain: 명칭, required: false }
+      - { name: KERIA에이전트구분코드, domain: KERIA에이전트구분코드, required: true }
+      - { name: 식별자용도코드, domain: KERI식별자용도코드, required: true }
+      - { name: 식별자상태코드, domain: KERI식별자상태코드, required: true }
+      - { name: 관리지갑번호, domain: 지갑번호, required: false, foreign_key: true }
+      - { name: 생성일시, domain: 일시, required: false }
+      - { name: 최종회전일시, domain: 일시, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: KERI식별자관계
+    type: relationship_entity
+    identifier: [이용자번호, KERI식별자번호, KERI식별자관계유형코드, 유효시작일시]
+    attributes:
+      - { name: 이용자번호, domain: 이용자번호, required: true, identifier: true, foreign_key: true }
+      - { name: KERI식별자번호, domain: KERI식별자번호, required: true, identifier: true, foreign_key: true }
+      - { name: KERI식별자관계유형코드, domain: KERI식별자관계유형코드, required: true, identifier: true }
+      - { name: 유효시작일시, domain: 일시, required: true, identifier: true }
+      - { name: 유효종료일시, domain: 일시, required: false }
+      - { name: 기본여부, domain: 여부, required: true }
+      - { name: 관계상태코드, domain: 관계상태코드, required: true }
+      - { name: 권한부여자이용자번호, domain: 이용자번호, required: false, foreign_key: true }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: KERI식별자위임관계
+    type: relationship_entity
+    identifier: [위임자KERI식별자번호, 수임자KERI식별자번호, 위임관계유형코드, 유효시작일시]
+    attributes:
+      - { name: 위임자KERI식별자번호, domain: KERI식별자번호, required: true, identifier: true, foreign_key: true }
+      - { name: 수임자KERI식별자번호, domain: KERI식별자번호, required: true, identifier: true, foreign_key: true }
+      - { name: 위임관계유형코드, domain: 위임관계유형코드, required: true, identifier: true }
+      - { name: 유효시작일시, domain: 일시, required: true, identifier: true }
+      - { name: 유효종료일시, domain: 일시, required: false }
+      - { name: 위임상태코드, domain: 위임상태코드, required: true }
+      - { name: 위임근거값, domain: 식별값, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: KEL
+    type: dependent_entity
+    identifier: KERI식별자번호
+    attributes:
+      - { name: KERI식별자번호, domain: KERI식별자번호, required: true, identifier: true, foreign_key: true }
+      - { name: 현재순번, domain: 순번, required: true }
+      - { name: 현재이벤트SAID, domain: SAID, required: false }
+      - { name: 현재이벤트다이제스트값, domain: 다이제스트값, required: false }
+      - { name: 최종이벤트유형코드, domain: KEL이벤트유형코드, required: false }
+      - { name: 최종동기화일시, domain: 일시, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: CredentialRegistry
+    type: entity
+    identifier: 레지스트리번호
+    attributes:
+      - { name: 레지스트리번호, domain: 레지스트리번호, required: true, identifier: true }
+      - { name: 레지스트리식별자, domain: 레지스트리식별자, required: true }
+      - { name: 발급자KERI식별자번호, domain: KERI식별자번호, required: true, foreign_key: true }
+      - { name: 레지스트리명, domain: 명칭, required: false }
+      - { name: 레지스트리상태코드, domain: 레지스트리상태코드, required: true }
+      - { name: 생성일시, domain: 일시, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: TEL
+    type: dependent_entity
+    identifier: 레지스트리번호
+    attributes:
+      - { name: 레지스트리번호, domain: 레지스트리번호, required: true, identifier: true, foreign_key: true }
+      - { name: 현재순번, domain: 순번, required: true }
+      - { name: 현재이벤트SAID, domain: SAID, required: false }
+      - { name: 최종이벤트유형코드, domain: TEL이벤트유형코드, required: false }
+      - { name: 최종동기화일시, domain: 일시, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: ACDC자격증명
+    type: entity
+    identifier: 자격증명번호
+    attributes:
+      - { name: 자격증명번호, domain: 자격증명번호, required: true, identifier: true }
+      - { name: 자격증명식별자, domain: SAID, required: true }
+      - { name: 스키마SAID, domain: SAID, required: true }
+      - { name: 자격증명유형코드, domain: ACDC자격증명유형코드, required: true }
+      - { name: 발급자KERI식별자번호, domain: KERI식별자번호, required: true, foreign_key: true }
+      - { name: 보유자KERI식별자번호, domain: KERI식별자번호, required: false, foreign_key: true }
+      - { name: 레지스트리번호, domain: 레지스트리번호, required: true, foreign_key: true }
+      - { name: 보관지갑번호, domain: 지갑번호, required: false, foreign_key: true }
+      - { name: 발급상태코드, domain: ACDC발급상태코드, required: true }
+      - { name: IPEXGrantSAID, domain: SAID, required: false }
+      - { name: Admit여부, domain: 여부, required: true }
+      - { name: 폐기여부, domain: 여부, required: true }
+      - { name: 발급일시, domain: 일시, required: false }
+      - { name: 수락일시, domain: 일시, required: false }
+      - { name: 폐기일시, domain: 일시, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+relationships:
+  - id: R-KER-001
+    parent: 이용자
+    child: KERI식별자관계
+    parent_to_child: 가진다
+    child_to_parent: 속한다
+    cardinality: one_to_many
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: true
+    fk_attributes: [이용자번호]
+    external_parent: true
+    barker_sentence: 각 이용자는 KERI식별자관계를 0개 이상 가질 수 있다. 각 KERI식별자관계는 반드시 하나의 이용자에 속한다.
+
+  - id: R-KER-002
+    parent: KERI식별자
+    child: KERI식별자관계
+    parent_to_child: 대상이 된다
+    child_to_parent: 연결된다
+    cardinality: one_to_many
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: true
+    fk_attributes: [KERI식별자번호]
+    barker_sentence: 각 KERI식별자는 이용자 관계를 0개 이상 가질 수 있다. 각 KERI식별자관계는 반드시 하나의 KERI식별자에 연결된다.
+
+  - id: R-KER-003
+    parent: 이용자
+    child: 이용자지갑관계
+    parent_to_child: 가진다
+    child_to_parent: 속한다
+    cardinality: one_to_many
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: true
+    fk_attributes: [이용자번호]
+    external_parent: true
+    barker_sentence: 각 이용자는 지갑 관계를 0개 이상 가질 수 있다. 각 이용자지갑관계는 반드시 하나의 이용자에 속한다.
+
+  - id: R-KER-004
+    parent: 지갑
+    child: 이용자지갑관계
+    parent_to_child: 대상이 된다
+    child_to_parent: 연결된다
+    cardinality: one_to_many
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: true
+    fk_attributes: [지갑번호]
+    barker_sentence: 각 지갑은 이용자 관계를 0개 이상 가질 수 있다. 각 이용자지갑관계는 반드시 하나의 지갑에 연결된다.
+
+  - id: R-KER-005
+    parent: 지갑
+    child: KERI식별자
+    parent_to_child: 관리한다
+    child_to_parent: 관리된다
+    cardinality: one_to_many
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [관리지갑번호]
+    barker_sentence: 각 지갑은 KERI식별자를 0개 이상 관리할 수 있다. 각 KERI식별자는 현재 주 관리 지갑이 없거나 하나일 수 있다.
+
+  - id: R-KER-006
+    parent: KERI식별자
+    child: KEL
+    parent_to_child: 가진다
+    child_to_parent: 속한다
+    cardinality: one_to_one
+    parent_participation: "0..1"
+    child_participation: "1..1"
+    identifying: true
+    fk_attributes: [KERI식별자번호]
+    barker_sentence: 각 KERI식별자는 KEL 스냅샷을 0개 또는 1개 가진다. 각 KEL은 반드시 하나의 KERI식별자에 속한다.
+
+  - id: R-KER-007
+    parent: KERI식별자
+    child: CredentialRegistry
+    parent_to_child: 생성한다
+    child_to_parent: 생성된다
+    cardinality: one_to_many
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [발급자KERI식별자번호]
+    barker_sentence: 각 KERI식별자는 registry를 0개 이상 생성할 수 있다. 각 registry는 반드시 하나의 발급자 KERI식별자가 생성한다.
+
+  - id: R-KER-008
+    parent: CredentialRegistry
+    child: TEL
+    parent_to_child: 가진다
+    child_to_parent: 속한다
+    cardinality: one_to_one
+    parent_participation: "0..1"
+    child_participation: "1..1"
+    identifying: true
+    fk_attributes: [레지스트리번호]
+    barker_sentence: 각 registry는 TEL 스냅샷을 0개 또는 1개 가진다. 각 TEL은 반드시 하나의 registry에 속한다.
+
+  - id: R-KER-009
+    parent: CredentialRegistry
+    child: ACDC자격증명
+    parent_to_child: 등록한다
+    child_to_parent: 등록된다
+    cardinality: one_to_many
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [레지스트리번호]
+    barker_sentence: 각 registry는 credential을 0개 이상 등록할 수 있다. 각 ACDC자격증명은 반드시 하나의 registry에 등록된다.
+
+  - id: R-KER-010
+    parent: KERI식별자
+    child: KERI식별자위임관계
+    parent_to_child: 위임한다
+    child_to_parent: 위임자로 연결된다
+    cardinality: one_to_many
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: true
+    fk_attributes: [위임자KERI식별자번호]
+    role: delegator
+    barker_sentence: 각 KERI식별자는 다른 KERI식별자에게 0회 이상 위임할 수 있다. 각 위임관계는 반드시 하나의 위임자 KERI식별자를 가진다.
+
+  - id: R-KER-011
+    parent: KERI식별자
+    child: KERI식별자위임관계
+    parent_to_child: 위임받는다
+    child_to_parent: 수임자로 연결된다
+    cardinality: one_to_many
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: true
+    fk_attributes: [수임자KERI식별자번호]
+    role: delegatee
+    barker_sentence: 각 KERI식별자는 다른 KERI식별자로부터 0회 이상 위임받을 수 있다. 각 위임관계는 반드시 하나의 수임자 KERI식별자를 가진다.
+
+  - id: R-KER-012
+    parent: 지갑
+    child: ACDC자격증명
+    parent_to_child: 보관한다
+    child_to_parent: 보관된다
+    cardinality: one_to_many
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [보관지갑번호]
+    barker_sentence: 각 지갑은 credential을 0개 이상 보관할 수 있다. 각 ACDC자격증명은 현재 주 보관 지갑이 없거나 하나일 수 있다.
+
+  - id: R-KER-013
+    parent: KERI식별자
+    child: ACDC자격증명
+    parent_to_child: 발급한다
+    child_to_parent: 발급된다
+    cardinality: one_to_many
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [발급자KERI식별자번호]
+    role: issuer
+    barker_sentence: 각 KERI식별자는 credential을 0개 이상 발급할 수 있다. 각 ACDC자격증명은 반드시 하나의 발급자 KERI식별자를 가진다.
+
+  - id: R-KER-014
+    parent: KERI식별자
+    child: ACDC자격증명
+    parent_to_child: 보유한다
+    child_to_parent: 보유된다
+    cardinality: one_to_many
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [보유자KERI식별자번호]
+    role: holder
+    barker_sentence: 각 KERI식별자는 credential을 0개 이상 보유할 수 있다. 각 ACDC자격증명은 holder KERI식별자가 없거나 하나일 수 있다.
+
+  - id: R-KER-015
+    parent: 이용자
+    child: KERI식별자관계
+    parent_to_child: 부여한다
+    child_to_parent: 부여된다
+    cardinality: one_to_many
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [권한부여자이용자번호]
+    external_parent: true
+    barker_sentence: 각 이용자는 KERI식별자관계를 0회 이상 부여할 수 있다. 각 KERI식별자관계는 권한부여자가 없거나 하나의 이용자를 가진다.
+
+relationship_rules:
+  - KERI식별자관계와 이용자지갑관계의 유효기간은 동일 부모 조합과 동일 관계유형 안에서 겹칠 수 없다.
+  - 활성 지갑은 하나 이상의 현재 유효한 이용자지갑관계를 가져야 한다.
+  - 활성 KERI식별자는 하나 이상의 현재 유효한 보유자 또는 운영자 KERI식별자관계를 가져야 한다.
+  - KERI식별자.관리지갑번호와 ACDC자격증명.보관지갑번호는 현재 스냅샷이다.
+  - KEL과 TEL은 원문 이벤트가 아니라 현재 상태 스냅샷이다.
+  - GLEIF Root AID, GEDA, QVI delegated AID는 KERI식별자용도코드와 KERI식별자위임관계로 구분한다.
+  - ACDC자격증명의 발급 완료와 holder admit 완료는 다른 업무 상태이다.
+
+business_rules:
+  - QVI 발급자 AID는 QVI사업자가 보유하고 QVI직원이 운영할 수 있다.
+  - 법인 AID는 법인회원이 보유하고 법인소속개인회원이 운영할 수 있다.
+  - 개인 AID는 개인회원이 보유하고 운영할 수 있다.
+  - GLEIF 재단은 외부기관 이용자 인스턴스이고, GLEIF Root AID와 GEDA는 KERI식별자 인스턴스이다.
+  - GEDA는 엔터티가 아니라 식별자용도 또는 위임관계유형으로 표현한다.
+  - LE vLEI와 OOR은 QVI 발급자 AID가 발급한다.
+  - ECR은 법인 AID가 발급한다.
+  - ACDC자격증명의 발급자는 반드시 활성 KERI식별자여야 한다.
+  - ACDC자격증명의 holder가 있는 경우 holder도 활성 KERI식별자여야 한다.
+  - QVI 업무 상태의 발급 완료는 issue/grant 성공 기준이며 holder admit 완료와 구분한다.
+
+code_groups:
+  지갑유형코드: [BROWSER_EXTENSION, MOBILE_APP, DESKTOP_APP, SERVER_MANAGED]
+  지갑상태코드: [CREATING, ACTIVE, SUSPENDED, LOST, CLOSED]
+  지갑관계유형코드: [OWNER, OPERATOR, VIEWER, RECOVERY_MANAGER]
+  KERIA에이전트구분코드: [QVI_KERIA, LE_KERIA, USER_KERIA]
+  KERI식별자용도코드: [GLEIF_ROOT, GLEIF_GEDA, QVI_ISSUER, QVI_DELEGATED, LEGAL_ENTITY, EMPLOYEE, INDIVIDUAL]
+  KERI식별자상태코드: [CREATING, ACTIVE, ROTATED, SUSPENDED, CLOSED]
+  KERI식별자관계유형코드: [HOLDER, OWNER, OPERATOR, SIGNER, VIEWER]
+  위임관계유형코드: [GEDA_DELEGATION, QVI_DELEGATION, TRUST_CHAIN]
+  관계상태코드: [ACTIVE, SUSPENDED, ENDED]
+  레지스트리상태코드: [CREATING, ACTIVE, CLOSED]
+  ACDC자격증명유형코드: [QVI_CREDENTIAL, LE_VLEI, OOR, ECR]
+  ACDC발급상태코드: [PREPARED, ISSUED, GRANTED, ADMITTED, REVOKED, FAILED]
+  KEL이벤트유형코드: [ICP, ROT, IXN]
+  TEL이벤트유형코드: [ISS, REV]

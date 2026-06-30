@@ -1,0 +1,149 @@
+export const DEFAULT_MODEL_YAML = `subject_area: QVI 이용자
+notation: Barker-style nested subtype
+version: 0.1
+status: draft
+source_ddl: doc/DB설계/vlei_qvi_db_oracle.sql
+
+rules:
+  - 모든 이용자는 이용자번호로 식별한다.
+  - 이용자는 QVI직원 또는 회원 중 하나이다.
+  - 회원은 법인회원 또는 개인회원 중 하나이다.
+  - 개인회원은 법인소속개인회원 또는 일반개인회원 중 하나이다.
+  - QVI직원의 관리자/담당자는 상호배타 서브타입이 아니라 복수 부여 가능한 역할로 관리한다.
+  - 법인소속개인회원은 하나의 법인회원에 소속된다.
+  - 일반개인회원은 특정 법인회원에 소속되지 않는다.
+
+entities:
+  - name: 이용자
+    type: supertype
+    identifier: 이용자번호
+    discriminator: 이용자구분코드
+    attributes:
+      - { name: 이용자번호, domain: 이용자번호, required: true, identifier: true }
+      - { name: 이용자구분코드, domain: 이용자구분코드, required: true }
+      - { name: 로그인ID, domain: 이메일주소, required: true }
+      - { name: 비밀번호해시값, domain: 해시값, required: false }
+      - { name: 이메일주소, domain: 이메일주소, required: false }
+      - { name: 휴대전화번호, domain: 전화번호, required: false }
+      - { name: 이용자상태코드, domain: 이용자상태코드, required: true }
+      - { name: 최종로그인일시, domain: 일시, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+    subtype_sets:
+      - name: 이용자구분
+        disjoint: true
+        total: true
+        subtypes: [QVI직원, 회원]
+
+  - name: QVI직원
+    type: subtype
+    supertype: 이용자
+    identifier: 이용자번호
+    attributes:
+      - { name: 이용자번호, domain: 이용자번호, required: true, identifier: true }
+      - { name: 직원번호, domain: 직원번호, required: false }
+      - { name: 직원명, domain: 성명, required: true }
+      - { name: 부서명, domain: 명칭, required: false }
+      - { name: 직위명, domain: 명칭, required: false }
+      - { name: 재직상태코드, domain: 재직상태코드, required: true }
+
+  - name: QVI직원역할
+    type: entity
+    identifier: [이용자번호, QVI직원역할코드]
+    attributes:
+      - { name: 이용자번호, domain: 이용자번호, required: true, identifier: true }
+      - { name: QVI직원역할코드, domain: QVI직원역할코드, required: true, identifier: true }
+      - { name: 역할부여일시, domain: 일시, required: true }
+      - { name: 역할회수일시, domain: 일시, required: false }
+      - { name: 역할부여자이용자번호, domain: 이용자번호, required: false }
+
+  - name: 회원
+    type: subtype
+    supertype: 이용자
+    identifier: 이용자번호
+    discriminator: 회원구분코드
+    attributes:
+      - { name: 이용자번호, domain: 이용자번호, required: true, identifier: true }
+      - { name: 회원구분코드, domain: 회원구분코드, required: true }
+      - { name: 회원가입일시, domain: 일시, required: true }
+      - { name: 회원상태코드, domain: 회원상태코드, required: true }
+      - { name: 약관동의일시, domain: 일시, required: false }
+      - { name: 개인정보동의일시, domain: 일시, required: false }
+    subtype_sets:
+      - name: 회원구분
+        disjoint: true
+        total: true
+        subtypes: [법인회원, 개인회원]
+
+  - name: 법인회원
+    type: subtype
+    supertype: 회원
+    identifier: 이용자번호
+    attributes:
+      - { name: 이용자번호, domain: 이용자번호, required: true, identifier: true }
+      - { name: 법인식별자, domain: LEI, required: true }
+      - { name: 법인명, domain: 법인명, required: true }
+      - { name: 국가코드, domain: 국가코드, required: true }
+      - { name: 사업자등록번호, domain: 사업자등록번호, required: false }
+      - { name: 업종명, domain: 명칭, required: false }
+      - { name: 대표자명, domain: 성명, required: false }
+
+  - name: 개인회원
+    type: subtype
+    supertype: 회원
+    identifier: 이용자번호
+    discriminator: 개인회원구분코드
+    attributes:
+      - { name: 이용자번호, domain: 이용자번호, required: true, identifier: true }
+      - { name: 개인회원구분코드, domain: 개인회원구분코드, required: true }
+      - { name: 성명, domain: 성명, required: true }
+      - { name: 생년월일, domain: 일자, required: false }
+    subtype_sets:
+      - name: 개인회원구분
+        disjoint: true
+        total: true
+        subtypes: [법인소속개인회원, 일반개인회원]
+
+  - name: 법인소속개인회원
+    type: subtype
+    supertype: 개인회원
+    identifier: 이용자번호
+    attributes:
+      - { name: 이용자번호, domain: 이용자번호, required: true, identifier: true }
+      - { name: 소속법인이용자번호, domain: 이용자번호, required: true }
+      - { name: 사원번호, domain: 사원번호, required: false }
+      - { name: 부서명, domain: 명칭, required: false }
+      - { name: 직위명, domain: 명칭, required: false }
+      - { name: 소속상태코드, domain: 소속상태코드, required: true }
+      - { name: 소속시작일자, domain: 일자, required: false }
+      - { name: 소속종료일자, domain: 일자, required: false }
+
+  - name: 일반개인회원
+    type: subtype
+    supertype: 개인회원
+    identifier: 이용자번호
+    attributes:
+      - { name: 이용자번호, domain: 이용자번호, required: true, identifier: true }
+      - { name: 개인서비스구분코드, domain: 개인서비스구분코드, required: false }
+
+relationships:
+  - id: R-UAC-014
+    name: 보유
+    parent: QVI직원
+    child: QVI직원역할
+    cardinality: one_to_many
+    parent_participation: 0..M
+    child_participation: 1..1
+    identifying: false
+    description: QVI직원은 하나 이상의 역할을 보유한다.
+
+  - id: R-UAC-018
+    name: 소속
+    parent: 법인회원
+    child: 법인소속개인회원
+    cardinality: one_to_many
+    parent_participation: 0..M
+    child_participation: 1..1
+    identifying: false
+    description: 법인소속개인회원은 하나의 법인회원에 소속된다.
+`;

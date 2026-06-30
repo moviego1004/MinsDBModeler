@@ -1,0 +1,340 @@
+subject_area: QVI 개념 모델
+version: 0.1
+status: draft
+modeling_level: conceptual
+
+scope:
+  include:
+    - core_entities
+    - major_attributes
+    - core_relationships
+    - key_business_rules
+  exclude:
+    - full_attribute_definition
+    - standard_domains
+    - standard_code_values
+    - physical_names
+    - ddl
+    - indexes
+    - detailed_constraints
+
+entities:
+  - name: 이용자
+    purpose: QVI 서비스에서 업무상 식별되는 최상위 주체
+    key_attributes: [이용자번호, 이용자구분, 이용자상태]
+
+  - name: 이용자계정
+    purpose: 이용자가 포탈에 로그인하고 인증받기 위해 사용하는 접근 계정
+    key_attributes: [계정번호, 이용자번호, 로그인식별자, 계정상태]
+
+  - name: 회원가입신청
+    purpose: 외부 고객이 QVI 포탈 이용자가 되기 위해 가입을 요청하는 업무 엔터티
+    key_attributes: [가입신청번호, 가입신청유형, 가입신청상태, 신청일시]
+
+  - name: 회원가입신청단계이력
+    purpose: 회원가입신청이 어떤 단계에 언제 진입했고 어떻게 처리되었는지를 표현하는 이력 엔터티
+    key_attributes: [가입신청단계이력번호, 단계구분, 단계상태, 처리일시]
+
+  - name: QVI사업자
+    purpose: QVI 자격으로 LE vLEI와 OOR을 발급하는 사업자 주체
+    key_attributes: [이용자번호, 사업자명, 사업자상태]
+
+  - name: QVI직원
+    purpose: QVI 내부에서 포탈 운영, 심사, 발급, 폐기, 조회 업무를 수행하는 이용자
+    key_attributes: [이용자번호, 직원명, 재직상태]
+
+  - name: QVI직원역할부여이력
+    purpose: QVI직원에게 역할이 부여되고 회수되는 이력을 관리하는 엔터티
+    key_attributes: [역할부여이력번호, 역할구분, 역할상태, 유효기간]
+
+  - name: 회원
+    purpose: QVI 서비스를 이용하는 외부 고객의 상위 개념
+    key_attributes: [이용자번호, 회원구분, 회원상태]
+
+  - name: 법인회원
+    purpose: Legal Entity 단위로 QVI에 가입하여 LE vLEI 발급을 신청하는 회원
+    key_attributes: [이용자번호, LEI, 법인명, 국가]
+
+  - name: 개인회원
+    purpose: 자연인 단위로 QVI 서비스에 가입하는 회원
+    key_attributes: [이용자번호, 개인회원구분, 성명]
+
+  - name: 법인소속개인회원
+    purpose: 특정 법인회원에 소속되어 OOR/ECR 등 법인 역할 credential을 받을 수 있는 개인회원
+    key_attributes: [이용자번호, 소속상태, 소속기간]
+
+  - name: 법인소속이력
+    purpose: 개인회원이 특정 법인회원에 소속되거나 소속 해제되는 사실을 관리하는 관계 이력 엔터티
+    key_attributes: [법인회원이용자번호, 개인회원이용자번호, 소속상태, 유효기간]
+
+  - name: 일반개인회원
+    purpose: 특정 법인에 소속되지 않고 개인 자격으로 QVI 서비스를 이용하는 개인회원
+    key_attributes: [이용자번호, 개인서비스구분]
+
+  - name: 지갑
+    purpose: 이용자가 AID와 credential을 보관, 제어, 제시하기 위해 사용하는 wallet 단위
+    key_attributes: [지갑번호, 지갑유형, 지갑상태]
+
+  - name: 이용자지갑관계
+    purpose: 이용자와 지갑 사이의 관계를 나타내는 교차 엔터티
+    key_attributes: [이용자번호, 지갑번호, 지갑관계유형, 유효기간]
+
+  - name: KERI식별자관계
+    purpose: 이용자와 KERI식별자 사이의 보유, 운영, 서명, 조회 등 관계를 나타내는 관계 엔터티
+    key_attributes: [이용자번호, KERI식별자번호, 관계유형, 유효기간]
+
+  - name: KERI식별자
+    purpose: KERI AID를 업무적으로 추적하기 위한 핵심 엔터티
+    key_attributes: [KERI식별자번호, AID, 식별자용도, 식별자상태]
+
+  - name: KEL
+    purpose: KERI식별자의 Key Event Log 상태를 업무적으로 추적하는 엔터티
+    key_attributes: [KERI식별자번호, 현재순번, 현재이벤트식별자, 최종동기화시각]
+
+  - name: CredentialRegistry
+    purpose: ACDC Credential 발급과 폐기 상태를 기록하는 registry
+    key_attributes: [레지스트리번호, 레지스트리식별자, 레지스트리상태]
+
+  - name: TEL
+    purpose: Credential Registry의 Transaction Event Log 상태를 업무적으로 추적하는 엔터티
+    key_attributes: [레지스트리번호, 현재순번, 현재이벤트식별자, 최종동기화시각]
+
+  - name: ACDC자격증명
+    purpose: QVI Credential, LE vLEI, OOR, ECR 등 ACDC Credential을 업무적으로 추적하는 엔터티
+    key_attributes: [자격증명번호, 자격증명식별자, 자격증명유형, 발급상태]
+
+  - name: 외부기관
+    purpose: QVI 포탈과 신뢰체인 또는 운영 연계 관계를 갖는 외부 기관 주체
+    key_attributes: [이용자번호, 외부기관유형, 외부기관명, 외부기관상태]
+
+  - name: KERI식별자위임관계
+    purpose: KERI식별자 사이의 위임 또는 신뢰체인 관계를 업무적으로 추적하는 관계 엔터티
+    key_attributes: [위임자KERI식별자번호, 수임자KERI식별자번호, 위임관계유형, 유효기간]
+
+  - name: 발급신청
+    purpose: Credential 발급을 요청하고 심사/처리하는 업무 엔터티
+    key_attributes: [신청번호, 신청유형, 신청상태, 신청일시]
+
+  - name: 발급신청단계이력
+    purpose: 발급신청이 어떤 단계에 언제 진입했고 어떻게 처리되었는지를 recursive 관계로 표현하는 이력 엔터티
+    key_attributes: [발급신청단계이력번호, 단계구분, 단계상태, 처리일시]
+
+  - name: 자격증명생명주기신청
+    purpose: 이미 발급된 ACDC자격증명에 대한 갱신, 재발급, 폐기, 상태 변경 요청을 관리하는 업무 엔터티
+    key_attributes: [생명주기신청번호, 생명주기신청유형, 신청상태, 신청일시]
+
+  - name: 상품
+    purpose: QVI가 판매하거나 무료 제공할 수 있는 서비스 또는 credential 발급 단위
+    key_attributes: [상품번호, 상품유형, 상품명, 상품상태]
+
+  - name: 요금정책
+    purpose: 상품의 가격, 할인, 면제, 적용 기간을 정의하는 기준정보성 엔터티
+    key_attributes: [요금정책번호, 상품번호, 기준금액, 유효기간]
+
+  - name: 과금
+    purpose: 발급신청 또는 서비스 이용으로 인해 이용자에게 청구되는 금액 단위
+    key_attributes: [과금번호, 과금유형, 과금상태, 청구금액, 과금일시]
+
+  - name: 과금항목
+    purpose: LE vLEI 발급비, OOR/ECR 발급비, 할인, 면제, 부가세 등을 표현하는 과금의 세부 라인 항목
+    key_attributes: [과금항목번호, 과금항목유형, 항목금액, 수량]
+
+  - name: 결제
+    purpose: 카드 승인, 가상계좌 입금 확인, 세금계산서 입금 확인, 포인트 차감, 무료 처리 등 실제 정산 사건
+    key_attributes: [결제번호, 결제수단, 결제상태, 결제금액, 결제일시]
+
+  - name: 결제적용
+    purpose: 결제가 특정 과금에 얼마만큼 적용되었는지를 나타내는 교차 엔터티
+    key_attributes: [결제적용번호, 과금번호, 결제번호, 적용금액]
+
+  - name: 세금계산서
+    purpose: 세금계산서 발행, 수정, 취소와 입금 확인 연결을 관리하는 엔터티
+    key_attributes: [세금계산서번호, 발행유형, 세금계산서상태, 발행금액, 발행일시]
+
+  - name: 취소환불
+    purpose: 구매 취소와 환불 처리를 관리하는 엔터티
+    key_attributes: [취소환불번호, 취소환불유형, 취소환불상태, 취소환불금액, 처리일시]
+
+  - name: 이용자포인트
+    purpose: 이용자의 포인트 발생, 사용, 취소, 소멸, 조정을 관리하는 원장형 이력 엔터티
+    key_attributes: [포인트번호, 포인트거래유형, 발생포인트, 사용포인트, 현재포인트, 유효기간]
+
+  - name: 과금통계
+    purpose: 과금, 결제, 환불, 포인트 사용 내역을 집계한 파생 통계 엔터티
+    key_attributes: [과금통계번호, 통계기준, 통계기간, 집계금액, 집계건수]
+
+  - name: 약관
+    purpose: QVI 포탈 이용, 개인정보 처리, vLEI 신청 등에 적용되는 약관 또는 고지문
+    key_attributes: [약관번호, 약관유형, 약관버전, 시행일자]
+
+  - name: 약관동의이력
+    purpose: 이용자 또는 회원가입신청자가 특정 약관 버전에 동의한 사실을 관리하는 이력 엔터티
+    key_attributes: [약관동의이력번호, 약관번호, 동의상태, 동의일시]
+
+  - name: 공통코드
+    purpose: 유형, 상태, 단계, 역할처럼 업무 전반에서 사용하는 코드성 기준정보
+    key_attributes: [코드그룹, 코드값, 코드명, 사용여부]
+
+  - name: 첨부파일
+    purpose: 발급신청 증빙, 자료실 게시물, 기타 포탈 업무에 첨부되는 파일
+    key_attributes: [첨부파일번호, 파일명, 파일상태]
+
+  - name: 게시판
+    purpose: 공지사항, 자료실, FAQ, 문의 등 포탈 콘텐츠의 게시 채널을 정의하는 엔터티
+    key_attributes: [게시판번호, 게시판유형, 게시판명, 게시판상태, 공개범위]
+
+  - name: 게시물
+    purpose: 공지, 자료, FAQ 항목, 문의 글처럼 포탈에 게시되는 실제 콘텐츠 엔터티
+    key_attributes: [게시물번호, 게시판번호, 제목, 게시물상태, 공개범위, 게시일시]
+
+  - name: 감사로그
+    purpose: 업무 행위와 주요 상태 변경을 기록하는 엔터티
+    key_attributes: [감사로그번호, 이벤트유형, 행위자, 발생시각]
+
+  - name: 알림통지
+    purpose: 가입, 신청, 결제, 발급, 폐기 등 주요 업무 이벤트를 이용자에게 알리는 통지 엔터티
+    key_attributes: [통지번호, 통지유형, 통지상태, 발송일시]
+
+  - name: 외부연계시스템
+    purpose: QVI 포탈이 호출하거나 통신 상태를 추적해야 하는 외부 또는 주변 시스템
+    key_attributes: [연계시스템번호, 연계시스템유형, 연계시스템명, 연계시스템상태]
+
+  - name: 연계엔드포인트
+    purpose: 외부연계시스템의 실제 호출 주소와 발견 정보를 관리하는 엔터티
+    key_attributes: [엔드포인트번호, 엔드포인트유형, 엔드포인트URL, 엔드포인트상태]
+
+  - name: 연계작업
+    purpose: 외부연계시스템 또는 KERIA에 요청한 비동기/동기 작업의 업무 단위
+    key_attributes: [연계작업번호, 연계작업유형, 연계작업상태, 재시도횟수, 다음재시도일시]
+
+  - name: 연계시도이력
+    purpose: 연계작업을 실제로 시도한 각 호출 또는 polling 시도 이력
+    key_attributes: [연계시도이력번호, 시도순번, 시도상태, 응답코드, 시도일시]
+
+relationships:
+  - { from: 이용자, to: QVI사업자, type: subtype, description: QVI사업자는 이용자의 서브타입이다. }
+  - { from: 이용자, to: QVI직원, type: subtype, description: QVI직원은 이용자의 서브타입이다. }
+  - { from: 이용자, to: 회원, type: subtype, description: 회원은 이용자의 서브타입이다. }
+  - { from: 이용자, to: 외부기관, type: subtype, description: 외부기관은 이용자의 서브타입이다. }
+  - { from: 이용자, to: 이용자계정, type: association, description: 이용자는 포탈 접근 계정을 가진다. }
+  - { from: 회원가입신청, to: 이용자, type: result, description: 회원가입신청은 승인 시 이용자와 회원을 생성할 수 있다. }
+  - { from: 회원가입신청, to: 회원가입신청단계이력, type: composition, description: 회원가입신청은 진행 단계 이력을 가진다. }
+  - { from: 회원가입신청단계이력, to: 회원가입신청단계이력, type: recursive, description: 회원가입신청단계이력은 선행/후행 단계로 연결될 수 있다. }
+  - { from: 회원, to: 법인회원, type: subtype, description: 법인회원은 회원의 서브타입이다. }
+  - { from: 회원, to: 개인회원, type: subtype, description: 개인회원은 회원의 서브타입이다. }
+  - { from: 개인회원, to: 법인소속개인회원, type: subtype, description: 법인소속개인회원은 개인회원의 서브타입이다. }
+  - { from: 개인회원, to: 일반개인회원, type: subtype, description: 일반개인회원은 개인회원의 서브타입이다. }
+  - { from: QVI직원, to: QVI직원역할부여이력, type: history, description: QVI직원은 역할 부여 이력을 가진다. }
+  - { from: 법인회원, to: 법인소속개인회원, type: association, description: 법인소속개인회원은 법인회원에 소속된다. }
+  - { from: 법인회원, to: 법인소속이력, type: history, description: 법인회원은 개인회원 소속 이력을 가진다. }
+  - { from: 개인회원, to: 법인소속이력, type: history, description: 개인회원은 법인 소속 이력을 가진다. }
+  - { from: 이용자, to: 이용자지갑관계, type: identifying, description: 이용자는 지갑 관계의 부모이다. }
+  - { from: 지갑, to: 이용자지갑관계, type: identifying, description: 지갑은 이용자 관계의 부모이다. }
+  - { from: 이용자, to: KERI식별자관계, type: identifying, description: 이용자는 AID 관계의 부모이다. }
+  - { from: KERI식별자, to: KERI식별자관계, type: identifying, description: KERI식별자는 AID 관계의 부모이다. }
+  - { from: 지갑, to: KERI식별자, type: association, description: 지갑은 AID를 관리할 수 있다. }
+  - { from: KERI식별자, to: KEL, type: composition, description: AID는 KEL을 가진다. }
+  - { from: KERI식별자, to: CredentialRegistry, type: association, description: AID는 registry를 생성한다. }
+  - { from: CredentialRegistry, to: TEL, type: composition, description: registry는 TEL을 가진다. }
+  - { from: CredentialRegistry, to: ACDC자격증명, type: association, description: credential은 registry에 등록된다. }
+  - { from: KERI식별자, to: ACDC자격증명, type: issuer_holder, description: AID는 credential의 발급자 또는 보유자이다. }
+  - { from: 지갑, to: ACDC자격증명, type: association, description: 지갑은 credential을 보관하거나 제시할 수 있다. }
+  - { from: KERI식별자, to: KERI식별자위임관계, type: delegator, description: KERI식별자는 다른 KERI식별자에게 권한을 위임할 수 있다. }
+  - { from: KERI식별자, to: KERI식별자위임관계, type: delegatee, description: KERI식별자는 다른 KERI식별자로부터 권한을 위임받을 수 있다. }
+  - { from: 발급신청, to: 발급신청단계이력, type: composition, description: 발급신청은 진행 단계 이력을 가진다. }
+  - { from: 발급신청단계이력, to: 발급신청단계이력, type: recursive, description: 발급신청단계이력은 선행/후행 단계로 연결된다. }
+  - { from: ACDC자격증명, to: 자격증명생명주기신청, type: association, description: 발급된 credential의 갱신, 재발급, 폐기 요청을 관리한다. }
+  - { from: 상품, to: 요금정책, type: history, description: 상품은 적용 기간별 요금정책을 가진다. }
+  - { from: 과금항목, to: 상품, type: association, description: 과금항목은 청구 산정 기준 상품을 참조할 수 있다. }
+  - { from: 과금항목, to: 요금정책, type: association, description: 과금항목은 적용된 요금정책을 참조할 수 있다. }
+  - { from: 발급신청, to: 과금, type: association, description: 발급신청은 과금을 발생시킬 수 있다. }
+  - { from: 과금, to: 과금항목, type: composition, description: 과금은 세부 항목을 가진다. }
+  - { from: 과금, to: 결제적용, type: association, description: 과금은 결제적용을 통해 정산된다. }
+  - { from: 결제, to: 결제적용, type: association, description: 결제는 과금에 적용된다. }
+  - { from: 과금, to: 세금계산서, type: association, description: 과금은 세금계산서를 가질 수 있다. }
+  - { from: 과금, to: 취소환불, type: association, description: 과금은 취소환불의 대상이 될 수 있다. }
+  - { from: 결제, to: 취소환불, type: association, description: 결제는 취소환불의 대상이 될 수 있다. }
+  - { from: 세금계산서, to: 결제, type: association, description: 세금계산서는 입금 확인 결제와 연결될 수 있다. }
+  - { from: 이용자, to: 이용자포인트, type: history, description: 이용자는 포인트 원장 이력을 가진다. }
+  - { from: 이용자포인트, to: 과금, type: association, description: 포인트 이력은 관련 과금과 연결될 수 있다. }
+  - { from: 이용자포인트, to: 결제, type: association, description: 포인트 이력은 관련 결제와 연결될 수 있다. }
+  - { from: 과금통계, to: 과금, type: derived, description: 과금통계는 과금 원천 데이터를 기준으로 산출된다. }
+  - { from: 과금통계, to: 결제, type: derived, description: 과금통계는 결제 원천 데이터를 기준으로 산출된다. }
+  - { from: 과금통계, to: 취소환불, type: derived, description: 과금통계는 취소환불 원천 데이터를 기준으로 산출된다. }
+  - { from: 과금통계, to: 이용자포인트, type: derived, description: 과금통계는 포인트 원장 데이터를 기준으로 산출된다. }
+  - { from: 발급신청, to: ACDC자격증명, type: result, description: 발급신청은 처리 결과로 credential을 생성한다. }
+  - { from: 발급신청, to: 첨부파일, type: association, description: 발급신청은 증빙 파일을 가진다. }
+  - { from: 게시판, to: 게시물, type: composition, description: 게시판은 게시물을 포함한다. }
+  - { from: 이용자, to: 게시물, type: actor, description: 이용자는 게시물의 작성자, 수정자, 게시 승인자가 될 수 있다. }
+  - { from: 게시물, to: 첨부파일, type: association, description: 게시물은 자료실 파일 등 첨부파일을 가질 수 있다. }
+  - { from: 약관, to: 약관동의이력, type: history, description: 약관의 버전별 동의 사실을 관리한다. }
+  - { from: 이용자, to: 약관동의이력, type: history, description: 가입 후 약관 동의는 이용자에 연결된다. }
+  - { from: 회원가입신청, to: 약관동의이력, type: history, description: 가입 전 약관 동의는 회원가입신청에 연결될 수 있다. }
+  - { from: 이용자, to: 감사로그, type: actor, description: 이용자는 업무 행위자로 감사로그에 기록된다. }
+  - { from: 이용자, to: 알림통지, type: recipient, description: 이용자는 업무 알림을 받을 수 있다. }
+  - { from: 외부기관, to: 외부연계시스템, type: operator, description: 외부기관은 연계 시스템의 운영 주체가 될 수 있다. }
+  - { from: 외부연계시스템, to: 연계엔드포인트, type: composition, description: 연계 시스템은 호출 또는 발견 엔드포인트를 가진다. }
+  - { from: 외부연계시스템, to: 연계작업, type: target, description: 연계작업은 연계 시스템을 대상으로 한다. }
+  - { from: 연계엔드포인트, to: 연계작업, type: target, description: 연계작업은 특정 엔드포인트를 호출 대상으로 삼을 수 있다. }
+  - { from: 연계작업, to: 연계시도이력, type: history, description: 연계작업은 실제 호출과 재시도 이력을 가진다. }
+  - { from: 발급신청, to: 연계작업, type: trigger, description: 발급신청은 LEI 조회, Reporting API, KERIA 발급 작업을 유발할 수 있다. }
+  - { from: 자격증명생명주기신청, to: 연계작업, type: trigger, description: 생명주기신청은 폐기 보고, 키 회전, 상태 조회 작업을 유발할 수 있다. }
+  - { from: KERI식별자, to: 연계작업, type: target, description: KERI식별자는 OOBI resolve, witness receipt, watcher 조회, 키 회전 작업의 대상이 될 수 있다. }
+  - { from: ACDC자격증명, to: 연계작업, type: target, description: ACDC자격증명은 발급, 검증, 폐기, 보고 작업의 대상이 될 수 있다. }
+
+business_rules:
+  - 이용자는 QVI사업자, QVI직원, 회원 또는 외부기관 중 하나이다.
+  - 이용자와 이용자계정은 분리한다.
+  - 이용자는 업무 주체이고 이용자계정은 포탈 접근 수단이다.
+  - 회원가입신청은 승인 전 고객 정보를 관리하고, 승인되면 이용자와 회원 서브타입을 생성할 수 있다.
+  - 회원가입신청의 진행 흐름은 회원가입신청단계이력으로 관리한다.
+  - 회원은 법인회원 또는 개인회원 중 하나이다.
+  - 개인회원은 법인소속개인회원 또는 일반개인회원 중 하나이다.
+  - QVI직원의 관리자/담당자 구분은 서브타입이 아니라 역할 코드로 본다.
+  - 법인소속개인회원은 법인회원에 소속된다.
+  - 법인과 개인의 소속 사실은 법인소속이력으로 관리한다.
+  - 법인소속개인회원은 유효한 법인소속이력을 가진 개인회원이다.
+  - AID는 이용자 속성이 아니라 KERI식별자 엔터티로 관리한다.
+  - AID 관계는 이용자와 KERI식별자의 식별 관계 엔터티로 관리한다.
+  - AID 관계유형으로 보유, 운영, 서명, 조회 등을 구분한다.
+  - AID를 보유하는 이용자와 AID를 운영하는 이용자는 다를 수 있다.
+  - 지갑은 이용자 속성이 아니라 독립 엔터티로 관리한다.
+  - 이용자와 지갑의 관계는 이용자지갑관계 교차 엔터티로 관리한다.
+  - 한 이용자는 여러 지갑을 가질 수 있고, 하나의 지갑은 여러 이용자와 관계를 맺을 수 있다.
+  - 지갑은 AID와 credential의 저장, 제어, 제시 수단이다.
+  - QVI 발급자 AID는 QVI사업자가 보유하고 QVI직원이 운영한다.
+  - 법인 AID는 법인회원이 보유하고 법인소속개인회원이 운영할 수 있다.
+  - 개인 AID는 개인회원이 보유하고 운영할 수 있다.
+  - AID 관계는 선분 이력으로 관리한다.
+  - KEL/TEL 원문은 KERIA LMDB를 권위 저장소로 본다.
+  - 업무 DB는 KEL/TEL의 최신 상태 스냅샷과 업무 참조 식별자만 우선 관리한다.
+  - LE vLEI와 OOR은 QVI 발급자 AID가 발급한다.
+  - ECR은 법인 AID가 발급한다.
+  - QVI 업무 상태의 발급 완료와 holder admit 완료는 구분한다.
+  - GLEIF 재단은 외부기관 서브타입의 인스턴스로 관리한다.
+  - GEDA는 엔터티가 아니라 GLEIF 계열 KERI식별자 인스턴스이며, 식별자용도와 KERI식별자위임관계로 표현한다.
+  - GLEIF Root AID, GEDA, QVI delegated AID의 신뢰체인은 KERI식별자와 KERI식별자위임관계로 업무 추적한다.
+  - QVI Credential은 ACDC자격증명의 한 유형으로 관리한다.
+  - 역할, 유형, 상태, 단계의 종류는 공통코드로 관리한다.
+  - 역할 부여 사실과 기간은 QVI직원역할부여이력으로 관리한다.
+  - 발급신청의 기본 진행 흐름은 신청, 접수, 과금, 발급 단계로 본다.
+  - 발급신청단계이력은 recursive 관계로 선행/후행 단계를 표현한다.
+  - 신규 credential 발급은 발급신청으로 관리하고, 발급 후 갱신/재발급/폐기 등 사후 업무는 자격증명생명주기신청으로 관리한다.
+  - 상품과 요금정책은 과금항목 산정의 기준이며, 실제 청구 금액은 과금항목에 스냅샷으로 남긴다.
+  - 과금은 발급신청에서 발생하며, 결제/환불/통계의 기준이 된다.
+  - 결제수단은 카드, 가상계좌, 세금계산서 입금, 포인트, 무료 처리 등을 포함한다.
+  - 한 과금은 여러 결제로 정산될 수 있고, 하나의 결제도 여러 과금에 적용될 수 있다.
+  - 포인트 일부 결제와 카드/가상계좌 차액 결제는 결제적용으로 표현한다.
+  - 세금계산서 방식은 계산서 발행과 입금 확인을 분리한다.
+  - 취소환불은 과금 또는 결제에 대해 별도 엔터티로 관리한다.
+  - 이용자포인트는 이용자별 포인트 원장 이력이며, 현재포인트는 각 이력 처리 후 잔액이다.
+  - 과금통계는 원천 거래가 아니라 과금/결제/환불/포인트 원천 데이터에서 산출한 집계이다.
+  - 약관은 버전 단위로 관리하고, 동의 사실은 약관동의이력으로 관리한다.
+  - 알림통지는 업무 상태의 원천이 아니라 발송 이력과 이용자 안내를 위한 엔터티이다.
+  - GLEIS API, GLEIF Reporting API, Sally/verifier, Witness, Watcher, KERIA 호출은 연계작업과 연계시도이력으로 추적한다.
+  - 재시도와 장애 보정을 위해 연계작업은 상태, 재시도횟수, 다음재시도일시, 외부참조값을 가져야 한다.
+  - 연계시도이력은 감사와 장애 분석에 필요한 요청/응답 요약을 남기되, secret과 개인정보 원문 저장은 제한한다.
+  - QVI 인증 심사 항목은 운영 시스템의 엔터티가 아니라 구축/인증 참고 자료로 관리한다.
+  - 게시판은 공지사항, 자료실, FAQ, 문의 등 포탈 콘텐츠 채널을 구분하는 설정 엔터티이다.
+  - 자료실은 별도 엔터티로 분리하지 않고 게시판유형이 자료실인 게시판과 게시물/첨부파일 관계로 표현한다.
+  - 게시물의 게시, 숨김, 폐기, 공개범위 변경은 게시물상태와 감사로그로 추적한다.

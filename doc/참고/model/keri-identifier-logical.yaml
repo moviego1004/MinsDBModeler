@@ -1,0 +1,176 @@
+subject_area: KERI 식별자 및 Credential
+notation: Barker-style logical model
+version: 0.1
+status: draft
+source_context:
+  - doc/DB설계/QVI 이용자 논리 모델.md
+  - doc/DB설계/vlei_qvi_db_oracle.sql
+
+rules:
+  - KERIA LMDB는 KEL, TEL, credential 원문의 권위 저장소이다.
+  - 업무 DB는 포탈, 심사, 발급, 폐기, 감사에 필요한 식별자와 상태 스냅샷을 관리한다.
+  - KERI식별자(AID)는 특정 이용자에게 직접 종속되지 않고 KERI식별주체와 관계 엔터티로 연결한다.
+  - 이용자는 KERI식별자에 대해 운영, 서명, 보유, 위임관리 등 권한 관계를 가질 수 있다.
+  - KERI식별자보유관계와 KERI식별자운영권한은 선분 이력으로 관리한다.
+  - 선분 이력의 유효종료일자는 현재 유효한 관계인 경우 비워둘 수 있다.
+  - 동일 관계유형에 대해 동일 주체/이용자와 동일 KERI식별자의 유효기간은 중복될 수 없다.
+  - 하나의 KERI식별자는 하나의 KEL을 가진다.
+  - KEL이벤트 전체 저장은 선택 사항이며, 1차 물리 모델에서는 최신 상태 스냅샷만 구현할 수 있다.
+  - ACDC Credential은 issuer KERI식별자와 holder KERI식별자를 참조한다.
+
+entities:
+  - name: KERI식별주체
+    type: entity
+    identifier: 주체번호
+    attributes:
+      - { name: 주체번호, domain: 주체번호, required: true, identifier: true }
+      - { name: 주체구분코드, domain: KERI식별주체구분코드, required: true }
+      - { name: 참조엔터티명, domain: 명칭, required: true }
+      - { name: 참조식별자값, domain: 식별자값, required: true }
+      - { name: 주체명, domain: 명칭, required: true }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: KERI식별자
+    type: entity
+    identifier: KERI식별자번호
+    attributes:
+      - { name: KERI식별자번호, domain: KERI식별자번호, required: true, identifier: true }
+      - { name: AID, domain: AID, required: true }
+      - { name: 식별자별칭명, domain: 명칭, required: false }
+      - { name: KERIA에이전트구분코드, domain: KERIA에이전트구분코드, required: true }
+      - { name: 식별자용도코드, domain: KERI식별자용도코드, required: true }
+      - { name: 식별자상태코드, domain: KERI식별자상태코드, required: true }
+      - { name: 생성일시, domain: 일시, required: true }
+      - { name: 최종회전일시, domain: 일시, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: KERI식별자보유관계
+    type: relationship_entity
+    identifier: [주체번호, KERI식별자번호, 보유관계유형코드, 유효시작일자]
+    attributes:
+      - { name: 주체번호, domain: 주체번호, required: true, identifier: true }
+      - { name: KERI식별자번호, domain: KERI식별자번호, required: true, identifier: true }
+      - { name: 보유관계유형코드, domain: 보유관계유형코드, required: true, identifier: true }
+      - { name: 유효시작일자, domain: 일자, required: true, identifier: true }
+      - { name: 유효종료일자, domain: 일자, required: false }
+      - { name: 기본여부, domain: 여부, required: true }
+      - { name: 관계상태코드, domain: 관계상태코드, required: true }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: KERI식별자운영권한
+    type: relationship_entity
+    identifier: [이용자번호, KERI식별자번호, 운영권한유형코드, 유효시작일자]
+    attributes:
+      - { name: 이용자번호, domain: 이용자번호, required: true, identifier: true }
+      - { name: KERI식별자번호, domain: KERI식별자번호, required: true, identifier: true }
+      - { name: 운영권한유형코드, domain: 운영권한유형코드, required: true, identifier: true }
+      - { name: 유효시작일자, domain: 일자, required: true, identifier: true }
+      - { name: 유효종료일자, domain: 일자, required: false }
+      - { name: 권한상태코드, domain: 권한상태코드, required: true }
+      - { name: 권한부여자이용자번호, domain: 이용자번호, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: KEL
+    type: dependent_entity
+    identifier: KERI식별자번호
+    attributes:
+      - { name: KERI식별자번호, domain: KERI식별자번호, required: true, identifier: true }
+      - { name: 현재순번, domain: 순번, required: true }
+      - { name: 현재이벤트SAID, domain: SAID, required: false }
+      - { name: 현재이벤트다이제스트값, domain: 다이제스트값, required: false }
+      - { name: 최종이벤트유형코드, domain: KEL이벤트유형코드, required: false }
+      - { name: 최종동기화일시, domain: 일시, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: KEL이벤트
+    type: dependent_entity
+    identifier: [KERI식별자번호, 이벤트순번]
+    optional_physical: true
+    attributes:
+      - { name: KERI식별자번호, domain: KERI식별자번호, required: true, identifier: true }
+      - { name: 이벤트순번, domain: 순번, required: true, identifier: true }
+      - { name: 이벤트유형코드, domain: KEL이벤트유형코드, required: true }
+      - { name: 이벤트SAID, domain: SAID, required: false }
+      - { name: 이벤트다이제스트값, domain: 다이제스트값, required: false }
+      - { name: 이벤트발생일시, domain: 일시, required: false }
+      - { name: 원문참조값, domain: 참조값, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+
+  - name: CredentialRegistry
+    type: dependent_entity
+    identifier: 레지스트리번호
+    attributes:
+      - { name: 레지스트리번호, domain: 레지스트리번호, required: true, identifier: true }
+      - { name: 레지스트리식별자, domain: 레지스트리식별자, required: true }
+      - { name: 발급자KERI식별자번호, domain: KERI식별자번호, required: true }
+      - { name: 레지스트리명, domain: 명칭, required: false }
+      - { name: 레지스트리상태코드, domain: 레지스트리상태코드, required: true }
+      - { name: 생성일시, domain: 일시, required: true }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: TEL
+    type: dependent_entity
+    identifier: 레지스트리번호
+    attributes:
+      - { name: 레지스트리번호, domain: 레지스트리번호, required: true, identifier: true }
+      - { name: 현재순번, domain: 순번, required: true }
+      - { name: 현재이벤트SAID, domain: SAID, required: false }
+      - { name: 최종이벤트유형코드, domain: TEL이벤트유형코드, required: false }
+      - { name: 최종동기화일시, domain: 일시, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: TEL이벤트
+    type: dependent_entity
+    identifier: [레지스트리번호, 이벤트순번]
+    optional_physical: true
+    attributes:
+      - { name: 레지스트리번호, domain: 레지스트리번호, required: true, identifier: true }
+      - { name: 이벤트순번, domain: 순번, required: true, identifier: true }
+      - { name: 이벤트유형코드, domain: TEL이벤트유형코드, required: true }
+      - { name: 이벤트SAID, domain: SAID, required: false }
+      - { name: 이벤트발생일시, domain: 일시, required: false }
+      - { name: 원문참조값, domain: 참조값, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+
+  - name: ACDC자격증명
+    type: entity
+    identifier: ACDC자격증명번호
+    attributes:
+      - { name: ACDC자격증명번호, domain: ACDC자격증명번호, required: true, identifier: true }
+      - { name: 자격증명SAID, domain: SAID, required: true }
+      - { name: 스키마SAID, domain: SAID, required: true }
+      - { name: 자격증명유형코드, domain: ACDC자격증명유형코드, required: true }
+      - { name: 발급자KERI식별자번호, domain: KERI식별자번호, required: true }
+      - { name: 보유자KERI식별자번호, domain: KERI식별자번호, required: false }
+      - { name: 대상주체번호, domain: 주체번호, required: false }
+      - { name: 레지스트리번호, domain: 레지스트리번호, required: true }
+      - { name: 발급상태코드, domain: ACDC발급상태코드, required: true }
+      - { name: IPEXGrantSAID, domain: SAID, required: false }
+      - { name: Admit여부, domain: 여부, required: true }
+      - { name: 폐기여부, domain: 여부, required: true }
+      - { name: 발급일시, domain: 일시, required: false }
+      - { name: 수락일시, domain: 일시, required: false }
+      - { name: 폐기일시, domain: 일시, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+relationships:
+  - { name: 식별한다, from: KERI식별주체, to: KERI식별자보유관계, cardinality: one_to_many }
+  - { name: 보유된다, from: KERI식별자, to: KERI식별자보유관계, cardinality: one_to_many }
+  - { name: 운영한다, from: 이용자, to: KERI식별자운영권한, cardinality: one_to_many, external_entity: true }
+  - { name: 운영대상이다, from: KERI식별자, to: KERI식별자운영권한, cardinality: one_to_many }
+  - { name: 가진다, from: KERI식별자, to: KEL, cardinality: one_to_one }
+  - { name: 포함한다, from: KEL, to: KEL이벤트, cardinality: one_to_many }
+  - { name: 생성한다, from: KERI식별자, to: CredentialRegistry, cardinality: one_to_many }
+  - { name: 가진다, from: CredentialRegistry, to: TEL, cardinality: one_to_one }
+  - { name: 포함한다, from: TEL, to: TEL이벤트, cardinality: one_to_many }
+  - { name: 발급한다, from: KERI식별자, to: ACDC자격증명, cardinality: one_to_many, role: issuer }
+  - { name: 보유한다, from: KERI식별자, to: ACDC자격증명, cardinality: one_to_many, role: holder }
+  - { name: 등록된다, from: CredentialRegistry, to: ACDC자격증명, cardinality: one_to_many }
