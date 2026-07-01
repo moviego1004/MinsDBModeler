@@ -18,8 +18,21 @@ import {
   Database,
   CheckCircle,
   FileCode,
-  FolderOpen
+  Edit2,
+  Undo2,
+  Redo2,
+  BookOpen
 } from 'lucide-react';
+import {
+  getProjects,
+  saveProjects,
+  getActiveProjectId,
+  setActiveProjectId,
+  createProject,
+  renameProject,
+  deleteProject
+} from './services/projectStorage.js';
+import type { Project } from './services/projectStorage.js';
 import {
   parseModel,
   stringifyModel,
@@ -37,11 +50,15 @@ import type {
 import { DEFAULT_MODEL_YAML } from './defaultModel.js';
 import CustomEntityNode from './components/CustomEntityNode.js';
 import CustomGroupNode from './components/CustomGroupNode.js';
+import CustomSubtypeSetNode from './components/CustomSubtypeSetNode.js';
 import CustomBarkerEdge from './components/CustomBarkerEdge.js';
+import DictionaryManager from './components/DictionaryManager.js';
+import PhysicalTransformWizard from './components/PhysicalTransformWizard.js';
 
 const nodeTypes = {
   entityNode: CustomEntityNode,
   supertypeGroup: CustomGroupNode,
+  subtypeSetGroup: CustomSubtypeSetNode,
 };
 
 const edgeTypes = {
@@ -67,10 +84,49 @@ export default function App() {
   const lastProcessedLayoutTrigger = useRef(-1);
 
   // Project state
-  const [projectFiles, setProjectFiles] = useState<{ name: string; handle: any; content: string }[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeProjectId, setActiveProjectIdState] = useState<string | null>(null);
   const [activeFileName, setActiveFileName] = useState<string | null>(null);
-  const [dirHandle, setDirHandle] = useState<any>(null);
   const [refineTargetFile, setRefineTargetFile] = useState<string>('');
+  const [isDictOpen, setIsDictOpen] = useState(false);
+  const [isTransformOpen, setIsTransformOpen] = useState(false);
+
+  // Undo/Redo history state
+  const [historyState, setHistoryState] = useState<{
+    history: { yaml: string; layout?: Record<string, { x: number; y: number }> }[];
+    index: number;
+  }>({ history: [], index: -1 });
+
+  const isUndoRedoAction = useRef(false);
+
+  const initHistory = useCallback((yaml: string, layout?: Record<string, { x: number; y: number }>) => {
+    setHistoryState({
+      history: [{ yaml, layout }],
+      index: 0
+    });
+  }, []);
+
+  const pushHistory = useCallback((yaml: string, layout?: Record<string, { x: number; y: number }>) => {
+    setHistoryState(prev => {
+      // Truncate future states if we had performed Undos
+      const truncatedHistory = prev.history.slice(0, prev.index + 1);
+      
+      // Avoid duplicate consecutive entries
+      const last = truncatedHistory[truncatedHistory.length - 1];
+      if (last && last.yaml === yaml && JSON.stringify(last.layout) === JSON.stringify(layout)) {
+        return prev;
+      }
+      
+      const newHistory = [...truncatedHistory, { yaml, layout }];
+      if (newHistory.length > 50) {
+        newHistory.shift();
+      }
+      return {
+        history: newHistory,
+        index: newHistory.length - 1
+      };
+    });
+  }, []);
 
   // React Flow state
   const [nodes, setNodes, onNodesChange] = useNodesState<any>([]);
@@ -81,120 +137,235 @@ export default function App() {
     nodesRef.current = nodes;
   }, [nodes]);
 
-  // Auto-save to disk when yamlText changes
+  // Load projects from storage on mount
   useEffect(() => {
-    if (!activeFileName) return;
-    const fileObj = projectFiles.find(f => f.name === activeFileName);
-    if (fileObj && fileObj.handle) {
-      const timeout = setTimeout(() => {
-        fileObj.handle.createWritable().then((writable: any) => {
-          writable.write(yamlText).then(() => writable.close());
-        }).catch((err: any) => console.log('Auto-save write deferred or failed', err));
-      }, 1000); // 1s debounce
-      return () => clearTimeout(timeout);
+    const loadedProjects = getProjects();
+    setProjects(loadedProjects);
+    let activeId = getActiveProjectId();
+    if (!activeId || !loadedProjects.some(p => p.id === activeId)) {
+      activeId = loadedProjects[0]?.id || null;
+      setActiveProjectId(activeId);
     }
-  }, [yamlText, activeFileName, projectFiles]);
-
-  // Open directory picker
-  const handleOpenProjectFolder = useCallback(async () => {
-    try {
-      const handle = await (window as any).showDirectoryPicker();
-      setDirHandle(handle);
-      
-      const files: { name: string; handle: any; content: string }[] = [];
-      for await (const entry of handle.values()) {
-        if (entry.kind === 'file' && (entry.name.endsWith('.yaml') || entry.name.endsWith('.yml'))) {
-          const file = await entry.getFile();
-          const content = await file.text();
-          files.push({ name: entry.name, handle: entry, content });
-        }
-      }
-      
-      setProjectFiles(files);
-      if (files.length > 0) {
-        const sorted = [...files].sort((a, b) => {
-          if (a.name.includes('user') && !b.name.includes('user')) return -1;
-          if (!a.name.includes('user') && b.name.includes('user')) return 1;
-          return a.name.localeCompare(b.name);
-        });
-        
-        const firstFile = sorted[0];
-        setActiveFileName(firstFile.name);
-        setYamlText(firstFile.content);
-        const parsed = parseModel(firstFile.content);
-        setModel(parsed);
-        setValidationErrors(validateModel(parsed, { allowUndefinedEntities: true }));
-      }
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        alert(`프로젝트 폴더를 여는데 실패했습니다: ${err.message}`);
-      }
-    }
+    setActiveProjectIdState(activeId);
   }, []);
+
+  const activeProject = useMemo(() => {
+    return projects.find(p => p.id === activeProjectId) || null;
+  }, [projects, activeProjectId]);
+
+  const projectFiles = useMemo(() => {
+    return activeProject ? activeProject.files : [];
+  }, [activeProject]);
+
+  const isActiveFileSql = useMemo(() => {
+    return activeFileName ? (activeFileName.endsWith('.sql') || activeFileName.endsWith('.ddl')) : false;
+  }, [activeFileName]);
+
+  // Set activeFileName when active project changes
+  useEffect(() => {
+    if (activeProject) {
+      if (activeProject.activeFileName && activeProject.files.some((f: any) => f.name === activeProject.activeFileName)) {
+        setActiveFileName(activeProject.activeFileName);
+      } else if (activeProject.files.length > 0) {
+        setActiveFileName(activeProject.files[0].name);
+      } else {
+        setActiveFileName(null);
+      }
+    } else {
+      setActiveFileName(null);
+    }
+  }, [activeProjectId, activeProject]);
+
+  // Load file content when activeFileName changes
+  useEffect(() => {
+    if (!activeFileName || !activeProject) return;
+    const fileObj = activeProject.files.find((f: any) => f.name === activeFileName);
+    if (fileObj) {
+      isUndoRedoAction.current = true; // Prevent pushing loaded content as new history state
+      setYamlText(fileObj.content);
+      initHistory(fileObj.content, fileObj.layout);
+
+      if (activeFileName.endsWith('.yaml') || activeFileName.endsWith('.yml')) {
+        try {
+          const parsed = parseModel(fileObj.content);
+          setModel(parsed);
+          setValidationErrors(validateModel(parsed, { allowUndefinedEntities: true }));
+        } catch (err: any) {
+          setValidationErrors([
+            {
+              path: 'YAML Parser',
+              message: err.message || 'Syntax error in YAML',
+              severity: 'error',
+            },
+          ]);
+        }
+      } else {
+        setValidationErrors([]);
+      }
+    }
+  }, [activeFileName, activeProjectId, initHistory]);
+
+  // Auto-save to localStorage when yamlText changes
+  useEffect(() => {
+    if (!activeProjectId || !activeFileName) return;
+    if (isUndoRedoAction.current) {
+      isUndoRedoAction.current = false;
+      return;
+    }
+    const timeout = setTimeout(() => {
+      // Gather current layout from view state
+      const layoutMap: Record<string, { x: number; y: number }> = {};
+      nodesRef.current.forEach((n: any) => {
+        layoutMap[n.id] = { x: n.position.x, y: n.position.y };
+      });
+
+      setProjects(prevProjects => {
+        const updated = prevProjects.map(proj => {
+          if (proj.id === activeProjectId) {
+            const filesUpdated = proj.files.map((f: any) => {
+              if (f.name === activeFileName) {
+                return { ...f, content: yamlText, layout: layoutMap };
+              }
+              return f;
+            });
+            return { ...proj, files: filesUpdated, activeFileName };
+          }
+          return proj;
+        });
+        saveProjects(updated);
+        return updated;
+      });
+
+      // Track this state in Undo/Redo history
+      pushHistory(yamlText, layoutMap);
+    }, 500); // 500ms debounce
+    return () => clearTimeout(timeout);
+  }, [yamlText, activeFileName, activeProjectId, pushHistory]);
 
   // Switch active file
   const handleSelectFile = useCallback((name: string) => {
-    const fileObj = projectFiles.find(f => f.name === name);
-    if (!fileObj) return;
-
     setActiveFileName(name);
-    setYamlText(fileObj.content);
-    try {
-      const parsed = parseModel(fileObj.content);
-      setModel(parsed);
-      setValidationErrors(validateModel(parsed, { allowUndefinedEntities: true }));
-    } catch (err: any) {
-      setValidationErrors([
-        {
-          path: 'YAML Parser',
-          message: err.message || 'Syntax error in YAML',
-          severity: 'error',
-        },
-      ]);
+    if (activeProjectId) {
+      setProjects(prevProjects => {
+        const updated = prevProjects.map(proj => {
+          if (proj.id === activeProjectId) {
+            return { ...proj, activeFileName: name };
+          }
+          return proj;
+        });
+        saveProjects(updated);
+        return updated;
+      });
     }
-  }, [projectFiles]);
+  }, [activeProjectId]);
 
   // Create new file in project
-  const handleNewFile = useCallback(async () => {
-    if (!dirHandle) return;
+  const handleNewFile = useCallback(() => {
+    if (!activeProjectId) return;
     
-    const name = prompt('새 모델 파일 이름을 입력하세요 (예: qvi-billing-logical.yaml):');
+    const name = prompt('새 파일 이름을 입력하세요 (예: qvi-billing-logical.yaml 또는 schema.sql):');
     if (!name) return;
     
-    const filename = name.endsWith('.yaml') || name.endsWith('.yml') ? name : `${name}.yaml`;
+    const hasExtension = name.endsWith('.yaml') || name.endsWith('.yml') || name.endsWith('.sql') || name.endsWith('.ddl');
+    const filename = hasExtension ? name : `${name}.yaml`;
     
-    if (projectFiles.some(f => f.name === filename)) {
+    if (projectFiles.some((f: any) => f.name === filename)) {
       alert('이미 존재하는 파일 이름입니다.');
       return;
     }
     
-    try {
-      const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
-      const initialYaml = `subject_area: ${filename.replace(/[-_]/g, ' ').replace('.yaml', '')}
+    const isSql = filename.endsWith('.sql') || filename.endsWith('.ddl');
+    const initialContent = isSql ? `-- New SQL DDL File\n\n` : `subject_area: ${filename.replace(/[-_]/g, ' ').replace('.yaml', '').replace('.yml', '')}
 notation: Barker logical model
 version: 0.1
 status: draft
 entities: []
 relationships: []
 `;
-      
-      const writable = await fileHandle.createWritable();
-      await writable.write(initialYaml);
-      await writable.close();
-      
-      const newFileObj = { name: filename, handle: fileHandle, content: initialYaml };
-      setProjectFiles(prev => [...prev, newFileObj]);
-      
-      // Select the new file
-      setActiveFileName(filename);
-      setYamlText(initialYaml);
-      const parsed = parseModel(initialYaml);
-      setModel(parsed);
-      setValidationErrors([]);
-    } catch (err: any) {
-      alert(`새 파일을 생성하는 데 실패했습니다: ${err.message}`);
+    
+    setProjects(prevProjects => {
+      const updated = prevProjects.map(proj => {
+        if (proj.id === activeProjectId) {
+          return {
+            ...proj,
+            activeFileName: filename,
+            files: [...proj.files, { name: filename, content: initialContent }]
+          };
+        }
+        return proj;
+      });
+      saveProjects(updated);
+      return updated;
+    });
+    
+    setActiveFileName(filename);
+    setYamlText(initialContent);
+  }, [activeProjectId, projectFiles]);
+
+  // Rename file in project
+  const handleRenameFile = useCallback((oldName: string) => {
+    if (!activeProjectId) return;
+    const newName = prompt('새 파일 이름을 입력하세요:', oldName);
+    if (!newName || newName === oldName) return;
+
+    if (projectFiles.some((f: any) => f.name === newName)) {
+      alert('이미 존재하는 파일 이름입니다.');
+      return;
     }
-  }, [dirHandle, projectFiles]);
+
+    setProjects(prevProjects => {
+      const updated = prevProjects.map(proj => {
+        if (proj.id === activeProjectId) {
+          const filesUpdated = proj.files.map((f: any) => {
+            if (f.name === oldName) {
+              return { ...f, name: newName };
+            }
+            return f;
+          });
+          const nextActiveFile = proj.activeFileName === oldName ? newName : proj.activeFileName;
+          return {
+            ...proj,
+            activeFileName: nextActiveFile,
+            files: filesUpdated
+          };
+        }
+        return proj;
+      });
+      saveProjects(updated);
+      return updated;
+    });
+
+    if (activeFileName === oldName) {
+      setActiveFileName(newName);
+    }
+  }, [activeProjectId, projectFiles, activeFileName]);
+
+  // Delete file from project
+  const handleDeleteFile = useCallback((filename: string) => {
+    if (!activeProjectId) return;
+    if (projectFiles.length <= 1) {
+      alert('프로젝트에 최소 하나의 파일은 존재해야 합니다.');
+      return;
+    }
+    if (!confirm(`"${filename}" 파일을 정말 삭제하시겠습니까?`)) return;
+
+    setProjects(prevProjects => {
+      const updated = prevProjects.map(proj => {
+        if (proj.id === activeProjectId) {
+          const filesUpdated = proj.files.filter((f: any) => f.name !== filename);
+          const nextActiveFile = proj.activeFileName === filename ? filesUpdated[0]?.name : proj.activeFileName;
+          return {
+            ...proj,
+            activeFileName: nextActiveFile,
+            files: filesUpdated
+          };
+        }
+        return proj;
+      });
+      saveProjects(updated);
+      return updated;
+    });
+  }, [activeProjectId, projectFiles]);
 
   // Refine conceptual entity into detailed logical model
   const handleRefineEntity = useCallback(async (entityName: string, targetFileName: string) => {
@@ -206,19 +377,17 @@ relationships: []
     const conceptualEntity = model.entities.find(e => e.name === entityName);
     if (!conceptualEntity) return;
 
-    const fileObj = projectFiles.find(f => f.name === targetFileName);
+    const fileObj = projectFiles.find((f: any) => f.name === targetFileName);
     if (!fileObj) return;
 
     try {
       const targetModel = parseModel(fileObj.content);
       
-      // Check if entity already exists
       if (targetModel.entities.some(e => e.name === entityName)) {
         alert(`대상 파일 "${targetFileName}"에 이미 "${entityName}" 엔터티가 존재합니다.`);
         return;
       }
 
-      // Convert key_attributes to detailed attributes if available
       const newAttributes: Attribute[] = [];
       if (Array.isArray(conceptualEntity.key_attributes)) {
         conceptualEntity.key_attributes.forEach((attrName, index) => {
@@ -247,17 +416,23 @@ relationships: []
 
       const yaml = stringifyModel(updatedTargetModel);
       
-      // Save updated target file to project state
-      setProjectFiles(prev => prev.map(f => f.name === targetFileName ? { ...f, content: yaml } : f));
-      
-      // Auto-save to target file on disk
-      if (fileObj.handle) {
-        const writable = await fileObj.handle.createWritable();
-        await writable.write(yaml);
-        await writable.close();
-      }
+      setProjects(prevProjects => {
+        const updated = prevProjects.map(proj => {
+          if (proj.id === activeProjectId) {
+            const filesUpdated = proj.files.map((f: any) => {
+              if (f.name === targetFileName) {
+                return { ...f, content: yaml };
+              }
+              return f;
+            });
+            return { ...proj, files: filesUpdated };
+          }
+          return proj;
+        });
+        saveProjects(updated);
+        return updated;
+      });
 
-      // Switch to the target file
       handleSelectFile(targetFileName);
       setSelectedEntityName(entityName);
       
@@ -265,7 +440,7 @@ relationships: []
     } catch (e: any) {
       alert(`상세화 처리 중 오류가 발생했습니다: ${e.message}`);
     }
-  }, [model, projectFiles, handleSelectFile]);
+  }, [model, projectFiles, handleSelectFile, activeProjectId]);
 
   // Parse YAML to Model and run validation
   const updateModelFromYaml = useCallback((yaml: string) => {
@@ -287,6 +462,72 @@ relationships: []
     }
   }, []);
 
+  // Undo implementation
+  const handleUndo = useCallback(() => {
+    if (historyState.index <= 0) return;
+    
+    const prevIndex = historyState.index - 1;
+    const targetState = historyState.history[prevIndex];
+    
+    isUndoRedoAction.current = true;
+    setYamlText(targetState.yaml);
+    updateModelFromYaml(targetState.yaml);
+    
+    if (activeProjectId && activeFileName) {
+      setProjects(prevProjects => {
+        const updated = prevProjects.map(proj => {
+          if (proj.id === activeProjectId) {
+            const filesUpdated = proj.files.map((f: any) => {
+              if (f.name === activeFileName) {
+                return { ...f, content: targetState.yaml, layout: targetState.layout };
+              }
+              return f;
+            });
+            return { ...proj, files: filesUpdated };
+          }
+          return proj;
+        });
+        saveProjects(updated);
+        return updated;
+      });
+    }
+    
+    setHistoryState(prev => ({ ...prev, index: prevIndex }));
+  }, [historyState, activeProjectId, activeFileName, updateModelFromYaml]);
+
+  // Redo implementation
+  const handleRedo = useCallback(() => {
+    if (historyState.index >= historyState.history.length - 1) return;
+    
+    const nextIndex = historyState.index + 1;
+    const targetState = historyState.history[nextIndex];
+    
+    isUndoRedoAction.current = true;
+    setYamlText(targetState.yaml);
+    updateModelFromYaml(targetState.yaml);
+    
+    if (activeProjectId && activeFileName) {
+      setProjects(prevProjects => {
+        const updated = prevProjects.map(proj => {
+          if (proj.id === activeProjectId) {
+            const filesUpdated = proj.files.map((f: any) => {
+              if (f.name === activeFileName) {
+                return { ...f, content: targetState.yaml, layout: targetState.layout };
+              }
+              return f;
+            });
+            return { ...proj, files: filesUpdated };
+          }
+          return proj;
+        });
+        saveProjects(updated);
+        return updated;
+      });
+    }
+    
+    setHistoryState(prev => ({ ...prev, index: nextIndex }));
+  }, [historyState, activeProjectId, activeFileName, updateModelFromYaml]);
+
   // Sync editor changes with model
   const handleEditorChange = useCallback((value: string | undefined) => {
     if (value !== undefined) {
@@ -302,9 +543,24 @@ relationships: []
       setYamlText(yaml);
       setModel(updatedModel);
       
-      // Auto-save memory state of project file
-      if (activeFileName) {
-        setProjectFiles(prev => prev.map(f => f.name === activeFileName ? { ...f, content: yaml } : f));
+      // Update in projects list
+      if (activeProjectId && activeFileName) {
+        setProjects(prevProjects => {
+          const updated = prevProjects.map(proj => {
+            if (proj.id === activeProjectId) {
+              const filesUpdated = proj.files.map((f: any) => {
+                if (f.name === activeFileName) {
+                  return { ...f, content: yaml };
+                }
+                return f;
+              });
+              return { ...proj, files: filesUpdated };
+            }
+            return proj;
+          });
+          saveProjects(updated);
+          return updated;
+        });
       }
       
       const errors = validateModel(updatedModel, { allowUndefinedEntities: true });
@@ -312,13 +568,13 @@ relationships: []
     } catch (err) {
       console.error('Failed to stringify model', err);
     }
-  }, [activeFileName]);
+  }, [activeProjectId, activeFileName]);
 
   // Gather all entities defined in any project files
   const allProjectEntities = useMemo(() => {
     const entities: Entity[] = [];
     const addedNames = new Set<string>();
-    projectFiles.forEach(f => {
+    projectFiles.forEach((f: any) => {
       try {
         const parsed = parseModel(f.content);
         parsed.entities.forEach(ent => {
@@ -340,7 +596,7 @@ relationships: []
     parentToChildren: Map<string, string[]>,
     roots: string[]
   ) => {
-    const layoutDetails = new Map<string, { width: number; height: number; localY: number }>();
+    const layoutDetails = new Map<string, { width: number; height: number; localX?: number; localY: number }>();
 
     // Helper to calculate size of a branch
     function getBranchSize(name: string): { width: number; height: number } {
@@ -348,42 +604,89 @@ relationships: []
       if (!ent) return { width: NODE_WIDTH, height: 100 };
 
       const selfAttrHeight = HEADER_HEIGHT + ent.attributes.length * ATTR_HEIGHT + 10;
-      const children = parentToChildren.get(name) || [];
+      
+      // Determine subtype sets
+      let sets: { name: string; subtypes: string[] }[] = [];
+      if (ent.subtype_sets && ent.subtype_sets.length > 0) {
+        sets = ent.subtype_sets;
+      } else {
+        // Fallback: collect all subtypes in the active model that list this entity as supertype
+        const childNames = parentToChildren.get(name) || [];
+        if (childNames.length > 0) {
+          sets = [{
+            name: ent.discriminator || '구분',
+            subtypes: childNames
+          }];
+        }
+      }
 
-      if (children.length === 0) {
+      if (sets.length === 0) {
+        // Leaf entity
         const size = { width: NODE_WIDTH + PADDING * 2, height: selfAttrHeight + PADDING * 2 };
         layoutDetails.set(name, { ...size, localY: 0 });
         return size;
       }
 
-      // If it has subtypes, we stack them vertically inside the supertype container
-      let totalChildrenHeight = 0;
-      let maxWidth = NODE_WIDTH;
+      // If it has subtype sets, we lay them out vertically inside the supertype
+      let currentSetY = selfAttrHeight + PADDING * 2;
+      let maxSetWidth = NODE_WIDTH;
+      let totalSetsHeight = selfAttrHeight + PADDING * 2;
 
-      const childrenSizes = children.map(childName => {
-        const size = getBranchSize(childName);
-        if (size.width > maxWidth) {
-          maxWidth = size.width;
-        }
-        return { name: childName, ...size };
-      });
-
-      // Calculate vertical positions for child nodes
-      let currentY = selfAttrHeight + PADDING * 2;
-      childrenSizes.forEach(child => {
-        layoutDetails.set(child.name, {
-          width: child.width,
-          height: child.height,
-          localY: currentY,
+      sets.forEach(set => {
+        // For each subtype in the set, get its size
+        const subSizes = set.subtypes.map(subName => {
+          return { name: subName, ...getBranchSize(subName) };
         });
-        currentY += child.height + PADDING;
+
+        // Arrange subtypes horizontally inside the set
+        let setWidth = PADDING * 2;
+        let maxSubHeight = 60;
+        subSizes.forEach(sub => {
+          setWidth += sub.width + PADDING;
+          if (sub.height > maxSubHeight) {
+            maxSubHeight = sub.height;
+          }
+        });
+        setWidth -= PADDING; // remove trailing padding
+        if (setWidth < NODE_WIDTH) {
+          setWidth = NODE_WIDTH;
+        }
+
+        const LABEL_HEIGHT = 24;
+        const setHeight = maxSubHeight + LABEL_HEIGHT + PADDING * 2;
+
+        // Position subtypes horizontally inside this set
+        let currentSubX = PADDING;
+        subSizes.forEach(sub => {
+          layoutDetails.set(sub.name, {
+            width: sub.width,
+            height: sub.height,
+            localX: currentSubX,
+            localY: LABEL_HEIGHT + PADDING
+          });
+          currentSubX += sub.width + PADDING;
+        });
+
+        // Save layout size for the subtype set box itself
+        const setId = `set-${name}-${set.name}`;
+        layoutDetails.set(setId, {
+          width: setWidth,
+          height: setHeight,
+          localX: PADDING,
+          localY: currentSetY
+        });
+
+        currentSetY += setHeight + PADDING;
+        if (setWidth > maxSetWidth) {
+          maxSetWidth = setWidth;
+        }
       });
 
-      totalChildrenHeight = currentY;
+      totalSetsHeight = currentSetY;
 
       const finalSize = {
-        width: maxWidth + PADDING * 2,
-        height: totalChildrenHeight,
+        width: maxSetWidth + PADDING * 2,
+        height: totalSetsHeight
       };
       layoutDetails.set(name, { ...finalSize, localY: 0 });
       return finalSize;
@@ -451,15 +754,26 @@ relationships: []
     // Compute layout sizes
     const layouts = computeHierarchyLayouts(entityMap, parentToChildren, roots);
 
+    const activeFile = projectFiles.find((f: any) => f.name === activeFileName);
+    const savedLayout = activeFile?.layout || {};
+
     // Map existing positions to preserve them if not resetting
     const existingPositions = new Map<string, { x: number; y: number }>();
     const isReset = lastProcessedLayoutTrigger.current !== layoutTrigger;
     
     if (isReset) {
       lastProcessedLayoutTrigger.current = layoutTrigger;
+      // Do not load any existing or saved positions, recalculate fresh!
     } else {
+      // 1. Populate from viewport positions
       nodesRef.current.forEach((n: any) => {
         existingPositions.set(n.id, n.position);
+      });
+      // 2. Fallback to saved positions from the file
+      Object.keys(savedLayout).forEach(id => {
+        if (!existingPositions.has(id)) {
+          existingPositions.set(id, savedLayout[id]);
+        }
       });
     }
 
@@ -492,36 +806,39 @@ relationships: []
       const ent = entityMap.get(name);
       if (!ent) return;
 
-      const layout = layouts.get(name) || { width: NODE_WIDTH, height: 100, localY: 0 };
+      const layout = layouts.get(name) || { width: NODE_WIDTH, height: 100, localX: PADDING, localY: 0 };
       const children = parentToChildren.get(name) || [];
       const isExternal = !activeNames.has(name);
 
       const ancestorAttrs = getAncestorAttributeNames(name);
       const filteredAttributes = ent.attributes.filter(a => !ancestorAttrs.has(a.name));
 
-      // If it is a supertype, we render a Group Node container, and place the Attributes Node inside it
-      if (children.length > 0) {
-        const groupId = `group-${name}`;
-        
-        // 1. Add the Supertype Group Container Node
-        rfNodes.push({
-          id: groupId,
-          parentId: parentId || undefined,
-          type: 'supertypeGroup',
-          position: parentId ? { x: PADDING, y: layout.localY } : { x: globalX, y: globalY },
-          style: { width: layout.width, height: layout.height },
-          data: { label: name },
-        });
+      // Determine subtype sets
+      let sets: { name: string; subtypes: string[] }[] = [];
+      if (ent.subtype_sets && ent.subtype_sets.length > 0) {
+        sets = ent.subtype_sets;
+      } else {
+        if (children.length > 0) {
+          sets = [{
+            name: ent.discriminator || '구분',
+            subtypes: children
+          }];
+        }
+      }
 
-        // 2. Add the Supertype Attribute Node inside this Group
+      // If it is a supertype, we render it directly as a Group Node container containing attributes
+      if (sets.length > 0) {
         rfNodes.push({
           id: name,
-          parentId: groupId,
-          type: 'entityNode',
-          position: { x: PADDING, y: PADDING + 10 },
-          style: { width: NODE_WIDTH },
+          parentId: parentId || undefined,
+          type: 'supertypeGroup',
+          position: parentId 
+            ? { x: layout.localX ?? PADDING, y: layout.localY } 
+            : { x: globalX, y: globalY },
+          style: { width: layout.width, height: layout.height },
           data: {
             ...ent,
+            label: name,
             attributes: filteredAttributes,
             isExternal,
             onAttributeClick: (_attr: Attribute) => {
@@ -533,9 +850,25 @@ relationships: []
           },
         });
 
-        // 3. Add Subtypes recursively inside the Group
-        children.forEach(childName => {
-          buildNodes(childName, groupId, 0, 0);
+        // Add Subtype Sets and Subtypes inside this Supertype Group
+        sets.forEach(set => {
+          const setId = `set-${name}-${set.name}`;
+          const setLayout = layouts.get(setId) || { width: NODE_WIDTH, height: 100, localX: PADDING, localY: 100 };
+
+          // 1. Add Subtype Set Box
+          rfNodes.push({
+            id: setId,
+            parentId: name, // parent is the Supertype Node
+            type: 'subtypeSetGroup',
+            position: { x: setLayout.localX ?? PADDING, y: setLayout.localY },
+            style: { width: setLayout.width, height: setLayout.height },
+            data: { label: set.name },
+          });
+
+          // 2. Add child Subtypes inside the Subtype Set Box recursively
+          set.subtypes.forEach(subName => {
+            buildNodes(subName, setId, 0, 0); // parent is the Subtype Set Node
+          });
         });
 
       } else {
@@ -544,7 +877,9 @@ relationships: []
           id: name,
           parentId: parentId || undefined,
           type: 'entityNode',
-          position: parentId ? { x: PADDING, y: layout.localY } : { x: globalX, y: globalY },
+          position: parentId 
+            ? { x: layout.localX ?? PADDING, y: layout.localY } 
+            : { x: globalX, y: globalY },
           style: { width: NODE_WIDTH },
           data: {
             ...ent,
@@ -561,38 +896,38 @@ relationships: []
       }
     }
 
-    // Masonry Packing Layout for roots
-    const colX = [50, 480, 910];
-    const colY = [50, 50, 50];
+    // Row-based wrapping layout for roots (collision-free & responsive to wide supertypes)
+    let currentX = 50;
+    let currentY = 50;
+    let currentRowHeight = 0;
+    const MAX_CANVAS_WIDTH = 1350; // Wrap coordinates when exceeding this width
 
     roots.forEach((root) => {
       const layout = layouts.get(root) || { width: NODE_WIDTH + PADDING * 2, height: 200 };
-      const children = parentToChildren.get(root) || [];
-      const hasGroup = children.length > 0;
-      const targetId = hasGroup ? `group-${root}` : root;
 
       let x = 0;
       let y = 0;
 
-      if (existingPositions.has(targetId)) {
-        const pos = existingPositions.get(targetId)!;
+      if (existingPositions.has(root)) {
+        const pos = existingPositions.get(root)!;
         x = pos.x;
         y = pos.y;
       } else {
-        // Masonry Calculation
-        let minColIdx = 0;
-        let minColY = colY[0];
-        for (let i = 1; i < colY.length; i++) {
-          if (colY[i] < minColY) {
-            minColY = colY[i];
-            minColIdx = i;
-          }
+        // If node width causes it to overflow row width, wrap to a new row
+        if (currentX + layout.width > MAX_CANVAS_WIDTH && currentX > 50) {
+          currentX = 50;
+          currentY += currentRowHeight + 100; // 100px vertical gap
+          currentRowHeight = 0;
         }
-        x = colX[minColIdx];
-        y = minColY;
-        
-        // Update column height
-        colY[minColIdx] += layout.height + 80; // 80px gap
+
+        x = currentX;
+        y = currentY;
+
+        // Advance horizontal position
+        currentX += layout.width + 100; // 100px horizontal gap
+        if (layout.height > currentRowHeight) {
+          currentRowHeight = layout.height;
+        }
       }
 
       buildNodes(root, null, x, y);
@@ -612,24 +947,99 @@ relationships: []
 
     setNodes(rfNodes);
     setEdges(rfEdges);
-  }, [model, selectedRelationshipId, computeHierarchyLayouts, setNodes, setEdges, layoutTrigger, allProjectEntities]);
 
-  // Sync node dragging position back to model if saved in diagrams
-  const onNodeDragStop = useCallback((_event: any, node: any) => {
-    // Only update position if we are drag-moving a root node or root group
-    if (!node.parentId) {
-      // In Barker modeler, we can save positions in model.diagrams
-      // Let's implement diagram saving or just leave it local for the web view
+    // Save calculated coordinates on Auto Layout (Reset) so they are preserved
+    if (isReset && activeProjectId && activeFileName && rfNodes.length > 0) {
+      const layoutMap: Record<string, { x: number; y: number }> = {};
+      rfNodes.forEach((n: any) => {
+        layoutMap[n.id] = { x: n.position.x, y: n.position.y };
+      });
+
+      setProjects(prevProjects => {
+        const updated = prevProjects.map(proj => {
+          if (proj.id === activeProjectId) {
+            const filesUpdated = proj.files.map((f: any) => {
+              if (f.name === activeFileName) {
+                return { ...f, layout: layoutMap };
+              }
+              return f;
+            });
+            return { ...proj, files: filesUpdated };
+          }
+          return proj;
+        });
+        saveProjects(updated);
+        return updated;
+      });
+
+      pushHistory(yamlText, layoutMap);
     }
-  }, []);
+  }, [model, selectedRelationshipId, computeHierarchyLayouts, setNodes, setEdges, layoutTrigger, allProjectEntities, activeProjectId, activeFileName, yamlText, pushHistory]);
+
+  // Sync node dragging position back to project files in localStorage and track history
+  const onNodeDragStop = useCallback((_event: any, _node: any, latestNodes: any[]) => {
+    if (!activeProjectId || !activeFileName) return;
+
+    // Gather coordinates of all nodes from latest nodes array passed by React Flow
+    const layoutMap: Record<string, { x: number; y: number }> = {};
+    latestNodes.forEach((n: any) => {
+      layoutMap[n.id] = { x: n.position.x, y: n.position.y };
+    });
+
+    setProjects(prevProjects => {
+      const updated = prevProjects.map(proj => {
+        if (proj.id === activeProjectId) {
+          const filesUpdated = proj.files.map((f: any) => {
+            if (f.name === activeFileName) {
+              return { ...f, layout: layoutMap };
+            }
+            return f;
+          });
+          return { ...proj, files: filesUpdated };
+        }
+        return proj;
+      });
+      saveProjects(updated);
+      return updated;
+    });
+
+    // Save state to Undo/Redo history
+    pushHistory(yamlText, layoutMap);
+  }, [activeProjectId, activeFileName, yamlText, pushHistory]);
+
+  // Save generated physical specification / DDL file back to the project state
+  const handleSavePhysicalFile = useCallback((filename: string, content: string) => {
+    if (!activeProjectId) return;
+    
+    setProjects(prevProjects => {
+      const updated = prevProjects.map(proj => {
+        if (proj.id === activeProjectId) {
+          const exists = proj.files.some((f: any) => f.name === filename);
+          let filesUpdated;
+          if (exists) {
+            filesUpdated = proj.files.map((f: any) => f.name === filename ? { ...f, content } : f);
+          } else {
+            filesUpdated = [...proj.files, { name: filename, content }];
+          }
+          return { ...proj, files: filesUpdated, activeFileName: filename };
+        }
+        return proj;
+      });
+      saveProjects(updated);
+      return updated;
+    });
+
+    setActiveFileName(filename);
+    setYamlText(content);
+  }, [activeProjectId]);
 
   // Double click handler for nodes: switches files for external entities or jumps from conceptual to detailed logical models
   const onNodeDoubleClick = useCallback((_event: any, node: any) => {
     const entityName = node.id.replace('group-', '');
     
     // Search other files in the project first for a matching entity name or subject area
-    const otherFiles = projectFiles.filter(f => f.name !== activeFileName);
-    const definingFile = otherFiles.find(f => {
+    const otherFiles = projectFiles.filter((f: any) => f.name !== activeFileName);
+    const definingFile = otherFiles.find((f: any) => {
       try {
         const parsed = parseModel(f.content);
         const matchesSubjectArea = parsed.subject_area && parsed.subject_area.toLowerCase().replace(/\s+/g, '').includes(entityName.toLowerCase().replace(/\s+/g, ''));
@@ -939,10 +1349,79 @@ relationships: []
     <div className="modeler-container">
       {/* Top Header */}
       <header className="modeler-header">
-        <div className="header-title-section">
+        <div className="header-title-section" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <Database size={20} className="text-blue-500" />
-          <h1>MinsDBModeler</h1>
-          <span>{model.subject_area}</span>
+          <h1 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 'bold' }}>MinsDBModeler</h1>
+          
+          {/* Project Selector & Actions */}
+          <div className="project-selector-wrapper" style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '12px', paddingLeft: '12px', borderLeft: '1px solid var(--border-color)' }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Project:</span>
+            <select
+              className="form-control"
+              style={{ padding: '4px 8px', fontSize: '0.85rem', width: '180px', height: '32px' }}
+              value={activeProjectId || ''}
+              onChange={(e) => {
+                const id = e.target.value;
+                setActiveProjectId(id);
+                setActiveProjectIdState(id);
+              }}
+            >
+              {projects.map(proj => (
+                <option key={proj.id} value={proj.id}>{proj.name}</option>
+              ))}
+            </select>
+            
+            <button 
+              className="btn btn-icon" 
+              style={{ padding: '6px', height: '32px' }} 
+              title="Rename Project"
+              onClick={() => {
+                if (!activeProjectId || !activeProject) return;
+                const newName = prompt('프로젝트 이름을 입력하세요:', activeProject.name);
+                if (newName && newName !== activeProject.name) {
+                  const updated = renameProject(activeProjectId, newName);
+                  setProjects(updated);
+                }
+              }}
+            >
+              <Edit2 size={14} />
+            </button>
+            
+            <button 
+              className="btn btn-icon" 
+              style={{ padding: '6px', height: '32px' }} 
+              title="Create New Project"
+              onClick={() => {
+                const name = prompt('새 프로젝트 이름을 입력하세요:');
+                if (name) {
+                  const newProj = createProject(name);
+                  setProjects(getProjects());
+                  setActiveProjectId(newProj.id);
+                  setActiveProjectIdState(newProj.id);
+                }
+              }}
+            >
+              <Plus size={14} />
+            </button>
+            
+            <button 
+              className="btn btn-icon" 
+              style={{ padding: '6px', height: '32px', color: 'var(--danger)' }} 
+              title="Delete Project"
+              onClick={() => {
+                if (!activeProjectId || !activeProject) return;
+                if (confirm(`"${activeProject.name}" 프로젝트를 정말 삭제하시겠습니까?`)) {
+                  const updated = deleteProject(activeProjectId);
+                  setProjects(updated);
+                  const nextId = updated[0]?.id || null;
+                  setActiveProjectId(nextId);
+                  setActiveProjectIdState(nextId);
+                }
+              }}
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
         </div>
         <div className="header-actions">
           <button 
@@ -957,6 +1436,28 @@ relationships: []
           >
             Canvas Only
           </button>
+          {/* Undo/Redo Controls */}
+          <div style={{ display: 'flex', gap: '4px', marginRight: '6px', borderRight: '1px solid var(--border-color)', paddingRight: '10px', alignItems: 'center' }}>
+            <button 
+              className="btn btn-icon" 
+              title="되돌리기 (Undo)"
+              disabled={historyState.index <= 0}
+              onClick={handleUndo}
+              style={{ opacity: historyState.index <= 0 ? 0.4 : 1, cursor: historyState.index <= 0 ? 'not-allowed' : 'pointer', height: '32px', width: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Undo2 size={16} />
+            </button>
+            <button 
+              className="btn btn-icon" 
+              title="다시 실행 (Redo)"
+              disabled={historyState.index >= historyState.history.length - 1}
+              onClick={handleRedo}
+              style={{ opacity: historyState.index >= historyState.history.length - 1 ? 0.4 : 1, cursor: historyState.index >= historyState.history.length - 1 ? 'not-allowed' : 'pointer', height: '32px', width: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Redo2 size={16} />
+            </button>
+          </div>
+
           <button 
             className="btn"
             onClick={() => setLayoutTrigger(prev => prev + 1)}
@@ -964,11 +1465,59 @@ relationships: []
             <RefreshCw size={16} /> Auto Layout
           </button>
 
-          <button className="btn btn-secondary" onClick={handleOpenProjectFolder}>
-            <FolderOpen size={16} /> Open Project
+          {/* Import/Export Project Backup */}
+          <button 
+            className="btn btn-secondary" 
+            title="Export Entire Project to JSON"
+            onClick={() => {
+              if (!activeProjectId || !activeProject) return;
+              const jsonStr = JSON.stringify(activeProject, null, 2);
+              const blob = new Blob([jsonStr], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `${activeProject.name.replace(/\s+/g, '_')}_project.json`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+          >
+            <Download size={16} /> Export Proj
           </button>
 
-          <label className="btn btn-secondary">
+          <label className="btn btn-secondary" title="Import Project from JSON">
+            <Upload size={16} /> Import Proj
+            <input 
+              type="file" 
+              accept=".json" 
+              className="hidden-file-input" 
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                  try {
+                    const projectData = JSON.parse(event.target?.result as string);
+                    if (!projectData.name || !Array.isArray(projectData.files)) {
+                      throw new Error('올바른 프로젝트 파일 형식(JSON)이 아닙니다.');
+                    }
+                    projectData.id = `proj_${Date.now()}`;
+                    const currentProjects = getProjects();
+                    currentProjects.push(projectData);
+                    saveProjects(currentProjects);
+                    setProjects(currentProjects);
+                    setActiveProjectId(projectData.id);
+                    setActiveProjectIdState(projectData.id);
+                    alert(`"${projectData.name}" 프로젝트를 성공적으로 가져왔습니다.`);
+                  } catch (err: any) {
+                    alert(`프로젝트 가져오기 실패: ${err.message}`);
+                  }
+                };
+                reader.readAsText(file);
+              }}
+            />
+          </label>
+
+          <label className="btn btn-secondary" title="Load YAML to overwrite current active file">
             <Upload size={16} /> Load YAML
             <input 
               type="file" 
@@ -982,6 +1531,26 @@ relationships: []
             <Database size={16} /> Import DDL
           </button>
 
+          {/* Standardization & Physical Mapping Actions */}
+          <button 
+            className="btn btn-secondary" 
+            title="표준 도메인/단어/용어 사전 관리"
+            onClick={() => setIsDictOpen(true)}
+          >
+            <BookOpen size={16} /> 표준화 사전
+          </button>
+
+          {activeFileName && (activeFileName.endsWith('.yaml') || activeFileName.endsWith('.yml')) && (
+            <button 
+              className="btn btn-secondary" 
+              title="상세논리모델을 물리 테이블 모델 및 DDL로 전환"
+              onClick={() => setIsTransformOpen(true)}
+              style={{ border: '1px solid var(--accent-color)', color: 'var(--accent-color)' }}
+            >
+              <Database size={16} /> 물리 전환
+            </button>
+          )}
+
           <button className="btn btn-primary" onClick={handleExportYaml}>
             <Download size={16} /> Export YAML
           </button>
@@ -994,48 +1563,107 @@ relationships: []
         <aside className="modeler-sidebar">
           {/* Project Explorer Section */}
           <div className="sidebar-section">
-            <h3>
-              Project Workspace
-              {dirHandle ? (
+            <h3 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              Project Files
+              <div style={{ display: 'flex', gap: '4px' }}>
+                {/* Import local file into active project */}
+                <label className="btn btn-icon" style={{ padding: '2px 6px', fontSize: '0.75rem', cursor: 'pointer', border: '1px solid var(--border-color)', height: '24px', display: 'flex', alignItems: 'center' }} title="Import File">
+                  <Upload size={12} />
+                  <input 
+                    type="file" 
+                    accept=".yaml,.yml,.sql,.ddl" 
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file || !activeProjectId) return;
+                      const reader = new FileReader();
+                      reader.onload = (event) => {
+                        const content = event.target?.result as string;
+                        if (projectFiles.some((f: any) => f.name === file.name)) {
+                          alert('이미 같은 이름의 파일이 프로젝트에 존재합니다.');
+                          return;
+                        }
+                        setProjects(prevProjects => {
+                          const updated = prevProjects.map(proj => {
+                            if (proj.id === activeProjectId) {
+                              return {
+                                ...proj,
+                                activeFileName: file.name,
+                                files: [...proj.files, { name: file.name, content }]
+                              };
+                            }
+                            return proj;
+                          });
+                          saveProjects(updated);
+                          return updated;
+                        });
+                        setActiveFileName(file.name);
+                        setYamlText(content);
+                      };
+                      reader.readAsText(file);
+                    }} 
+                  />
+                </label>
+                
                 <button 
                   className="btn btn-icon" 
-                  style={{ padding: '2px 6px', fontSize: '0.75rem' }} 
+                  style={{ padding: '2px 6px', fontSize: '0.75rem', height: '24px' }} 
                   onClick={handleNewFile}
+                  title="Create New File"
                 >
-                  <Plus size={14} /> New
+                  <Plus size={12} /> New
                 </button>
-              ) : null}
+              </div>
             </h3>
             
-            {!dirHandle ? (
-              <div style={{ padding: '8px 0' }}>
-                <button className="btn btn-primary" style={{ width: '100%' }} onClick={handleOpenProjectFolder}>
-                  Open Project Folder
-                </button>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '6px', textAlign: 'center' }}>
-                  Select folder containing YAML models
-                </div>
-              </div>
-            ) : (
-              <div className="entity-list" style={{ maxHeight: '160px' }}>
-                {projectFiles.map(file => (
-                  <div 
-                    key={file.name} 
-                    className="entity-list-item"
-                    onClick={() => handleSelectFile(file.name)}
-                    style={{
-                      borderColor: activeFileName === file.name ? 'var(--accent-color)' : undefined,
-                      backgroundColor: activeFileName === file.name ? 'rgba(59, 130, 246, 0.05)' : undefined,
-                      fontWeight: activeFileName === file.name ? 'bold' : 'normal'
-                    }}
-                  >
-                    <span style={{ fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      📄 {file.name}
-                    </span>
+            <div className="entity-list" style={{ maxHeight: '200px' }}>
+              {projectFiles.map((file: any) => (
+                <div 
+                  key={file.name} 
+                  className="entity-list-item"
+                  onClick={() => handleSelectFile(file.name)}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    borderColor: activeFileName === file.name ? 'var(--accent-color)' : undefined,
+                    backgroundColor: activeFileName === file.name ? 'rgba(59, 130, 246, 0.05)' : undefined,
+                    fontWeight: activeFileName === file.name ? 'bold' : 'normal',
+                    paddingRight: '6px'
+                  }}
+                >
+                  <span style={{ fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                    {file.name.endsWith('.sql') || file.name.endsWith('.ddl') ? '📜' : '📄'} {file.name}
+                  </span>
+                  
+                  {/* File actions */}
+                  <div className="file-actions" style={{ display: 'flex', gap: '2px' }}>
+                    <button
+                      className="btn btn-icon"
+                      style={{ padding: '2px', border: 'none', background: 'transparent' }}
+                      title="Rename File"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRenameFile(file.name);
+                      }}
+                    >
+                      <Edit2 size={10} style={{ color: 'var(--text-muted)' }} />
+                    </button>
+                    <button
+                      className="btn btn-icon"
+                      style={{ padding: '2px', border: 'none', background: 'transparent' }}
+                      title="Delete File"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteFile(file.name);
+                      }}
+                    >
+                      <Trash2 size={10} style={{ color: 'var(--danger)' }} />
+                    </button>
                   </div>
-                ))}
-              </div>
-            )}
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Entity List */}
@@ -1131,42 +1759,76 @@ relationships: []
         <div className="main-canvas-area">
           {/* Canvas Pane */}
           <div className="canvas-pane">
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onNodeDragStop={onNodeDragStop}
-              onSelectionChange={onSelectionChange}
-              onNodeDoubleClick={onNodeDoubleClick}
-              nodeTypes={nodeTypes}
-              edgeTypes={edgeTypes}
-              fitView
-            >
-              <Background color="#cbd5e1" gap={20} size={1} />
-              <Controls />
-              <MiniMap 
-                nodeStrokeColor={(n) => n.type === 'supertypeGroup' ? '#cbd5e1' : '#94a3b8'}
-                nodeColor={(n) => n.type === 'supertypeGroup' ? 'rgba(241, 245, 249, 0.4)' : '#ffffff'}
-                style={{ backgroundColor: 'var(--bg-sidebar)' }} 
-              />
-              
-              <Panel position="bottom-left" style={{ background: 'var(--bg-sidebar)', padding: '6px 12px', borderRadius: '6px', fontSize: '0.75rem', color: 'var(--text-muted)', border: '1px solid var(--border-color)' }}>
-                <strong>Barker Notation Guide:</strong> Dotted line = Non-Identifying/Optional. Solid = Identifying/Mandatory. Crow's foot = Many.
-              </Panel>
-            </ReactFlow>
+            {isActiveFileSql ? (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
+                backgroundColor: 'var(--bg-sidebar)',
+                color: 'var(--text-muted)',
+                textAlign: 'center',
+                padding: '24px',
+                border: '1px solid var(--border-color)',
+                borderRadius: '8px',
+                margin: '12px'
+              }}>
+                <Database size={48} style={{ color: 'var(--accent-color)', marginBottom: '16px', opacity: 0.7 }} />
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--text-main)', marginBottom: '8px' }}>
+                  SQL DDL File
+                </h3>
+                <p style={{ maxWidth: '400px', fontSize: '0.85rem', marginBottom: '24px', lineHeight: '1.5' }}>
+                  "{activeFileName}" is a SQL DDL script. Use the code editor on the right to edit the script. Visual canvas editing is only available for YAML logical models.
+                </p>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setDdlImportText(yamlText);
+                    setIsDdlModalOpen(true);
+                  }}
+                >
+                  Import DDL to Logical Model
+                </button>
+              </div>
+            ) : (
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onNodeDragStop={onNodeDragStop}
+                onSelectionChange={onSelectionChange}
+                onNodeDoubleClick={onNodeDoubleClick}
+                nodeTypes={nodeTypes}
+                edgeTypes={edgeTypes}
+                fitView
+              >
+                <Background color="#cbd5e1" gap={20} size={1} />
+                <Controls />
+                <MiniMap 
+                  nodeStrokeColor={(n) => n.type === 'supertypeGroup' ? '#cbd5e1' : '#94a3b8'}
+                  nodeColor={(n) => n.type === 'supertypeGroup' ? 'rgba(241, 245, 249, 0.4)' : '#ffffff'}
+                  style={{ backgroundColor: 'var(--bg-sidebar)' }} 
+                />
+                
+                <Panel position="bottom-left" style={{ background: 'var(--bg-sidebar)', padding: '6px 12px', borderRadius: '6px', fontSize: '0.75rem', color: 'var(--text-muted)', border: '1px solid var(--border-color)' }}>
+                  <strong>Barker Notation Guide:</strong> Dotted line = Non-Identifying/Optional. Solid = Identifying/Mandatory. Crow's foot = Many.
+                </Panel>
+              </ReactFlow>
+            )}
           </div>
 
           {/* Monaco Editor Pane (Visible only in Split View) */}
           {activeTab === 'split' && (
             <div className="editor-pane">
               <div className="editor-pane-header">
-                YAML Schema Source Code (Round-trip)
+                {isActiveFileSql ? 'SQL DDL Code Editor' : 'YAML Schema Source Code (Round-trip)'}
               </div>
               <div style={{ flex: 1 }}>
                 <Editor
                   height="100%"
-                  language="yaml"
+                  language={isActiveFileSql ? 'sql' : 'yaml'}
                   theme="light"
                   value={yamlText}
                   onChange={handleEditorChange}
@@ -1259,8 +1921,8 @@ relationships: []
                   >
                     <option value="">-- 대상 상세 모델 파일 선택 --</option>
                     {projectFiles
-                      .filter(f => f.name !== activeFileName && !f.name.includes('conceptual'))
-                      .map(f => (
+                      .filter((f: any) => f.name !== activeFileName && !f.name.includes('conceptual'))
+                      .map((f: any) => (
                         <option key={f.name} value={f.name}>{f.name}</option>
                       ))}
                   </select>
@@ -1596,6 +2258,22 @@ relationships: []
             </div>
           </div>
         </div>
+      )}
+
+      {/* Standardization Dictionary Manager Modal */}
+      {isDictOpen && (
+        <DictionaryManager model={model} onClose={() => setIsDictOpen(false)} />
+      )}
+
+      {/* Physical Transform Wizard Modal */}
+      {isTransformOpen && activeFileName && (
+        <PhysicalTransformWizard 
+          model={model} 
+          projectFiles={projectFiles}
+          activeFileName={activeFileName} 
+          onClose={() => setIsTransformOpen(false)} 
+          onSavePhysicalFile={handleSavePhysicalFile}
+        />
       )}
     </div>
   );
