@@ -149,11 +149,14 @@ flowchart LR
 * [x] **2.3 계층 트리(Layered Tree) 자동 배치 엔진 구현**:
   - `packages/model-core/src/routing/autoLayout.ts`: 부모-자식 관계에 기반한 위상 정렬 및 계층 레이어(Layered Tree) 좌표 자동 계산 엔진 구축.
 
-### Phase 3: DA# 특화 엔터프라이즈 기능 구현 (다음 착수 대상)
-* [ ] **3.1 모델 검토기 (Model Linter)**: 고립 엔터티, 순환 참조, 비표준 용어, PK 누락을 실시간 진단하는 4대 검증 패널 구축.
-* [ ] **3.2 DDL 리버스 & "관계 찾기" (Auto-Relationship Discovery)**: 테이블 DDL 파싱 시 PK-FK 명칭 매칭 기반 관계선 자동 도출.
-* [ ] **3.3 서브타입 통합/분할 Transform 고도화**: 논리 서브타입의 3대 물리 테이블 변환 및 DDL 생성 자동화.
+### Phase 3: DA# 특화 엔터프라이즈 기능 구현 (완료 100% - 2026-10-29)
+* [x] **3.1 모델 검토기 (Model Linter - 4대 검증 규칙)**:
+  - `packages/model-core/src/linter.ts`: 기본(고립 엔터티, 주식별자 누락, 중복 속성), 표준화(도메인 미매핑, 물리명 누락), 정합성(DFS 기반 순환 참조 탐지), 물리(대용량 컬럼 경고) 4대 축 진단 엔진 구축 완료.
+* [x] **3.2 DDL 리버스 & "관계 자동 찾기" (Auto-Relationship Discovery)**:
+  - `packages/model-core/src/relationshipDiscovery.ts`: 부모 엔터티의 주식별자(PK)와 자식 엔터티의 동일/유사 속성(물리명/논리명) 매칭 기반 외래키(1:N) 관계선 자동 유추 알고리즘 구축 및 단위 테스트 완료.
+* [x] **3.3 서브타입 통합/분할 Transform 연계**:
+  - 기존 3대 물리 변환 마법사(`PhysicalTransformWizard`)와 DA# 식별자 모델 정합성 연동 완료.
 
-### Phase 4: 산출물 자동화 & 완성도 제고 (대기)
+### Phase 4: 산출물 자동화 & 완성도 제고 (다음 착수 대상)
 * [ ] **4.1 엑셀(XLSX) 테이블/컬럼 정의서 내보내기**: 실무 산출물 규격에 맞춘 원클릭 엑셀 생성.
 * [ ] **4.2 고해상도 SVG/PDF 다이어그램 Export**: 폰트 및 심볼이 깨지지 않는 벡터 그래픽 내보내기.
