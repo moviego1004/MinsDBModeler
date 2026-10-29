@@ -162,3 +162,6 @@ flowchart LR
   - `packages/model-core/src/reports/excelXmlExporter.ts`: 별도 서드파티 라이브러리 설치 없이 엑셀에서 스타일(헤더 배경, 테두리, 열 너비)과 함께 즉시 열리는 멀티시트(`테이블목록`, `컬럼정의서`, `관계정의서`) Excel XML 스프레드시트 생성기 구현 완료.
 * [x] **4.2 표준 마크다운(MD) 모델 명세서 Export**:
   - `packages/model-core/src/reports/markdownReportExporter.ts`: 엔터티 개요, 속성 상세 스펙, 관계 목록을 GitHub/문서화 친화적 표준 마크다운으로 출력하는 리포터 구현 및 단위 테스트 완료.
+* [x] **4.3 UI 통합 및 대화형 모달 연동**:
+  - `apps/modeler/src/App.tsx`: 툴바 상단에 **"모델 검토"** (`ModelLinterModal`), **"관계 찾기"** (`RelationshipDiscoveryModal`), **"정의서 (Excel)"**, **"명세서 (MD)"** 버튼 배치 및 상태/이벤트 핸들러 완전 통합.
+  - 모델 품질 4대 영역 린터 모달(심각도 필터, 탭 전환, 엔터티 직접 이동) 및 외래키 자동 발견 대화상자(체크박스 일괄/개별 선택 적용) 연동 완료.

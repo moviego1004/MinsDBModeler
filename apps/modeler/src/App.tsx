@@ -13,7 +13,11 @@ import {
   Edit2,
   Undo2,
   Redo2,
-  BookOpen
+  BookOpen,
+  ShieldCheck,
+  Network,
+  FileSpreadsheet,
+  FileText
 } from 'lucide-react';
 import {
   getProjects,
@@ -30,6 +34,8 @@ import {
   stringifyModel,
   validateModel,
   parseDdl,
+  exportExcelXml,
+  exportMarkdownReport,
 } from '@barker-modeler/model-core';
 import type {
   LogicalModel,
@@ -43,6 +49,8 @@ import { DEFAULT_MODEL_YAML } from './defaultModel.js';
 
 import DictionaryManager from './components/DictionaryManager.js';
 import PhysicalTransformWizard from './components/PhysicalTransformWizard.js';
+import ModelLinterModal from './components/ModelLinterModal.js';
+import RelationshipDiscoveryModal from './components/RelationshipDiscoveryModal.js';
 import { parse as yamlParse } from 'yaml';
 import { 
   getDictionary, 
@@ -77,6 +85,8 @@ export default function App() {
   const [refineTargetFile, setRefineTargetFile] = useState<string>('');
   const [isDictOpen, setIsDictOpen] = useState(false);
   const [isTransformOpen, setIsTransformOpen] = useState(false);
+  const [isLinterOpen, setIsLinterOpen] = useState(false);
+  const [isDiscoveryOpen, setIsDiscoveryOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'logical' | 'physical'>('logical');
 
   // Undo/Redo history state
@@ -1657,6 +1667,57 @@ relationships: []
     URL.revokeObjectURL(url);
   }, [yamlText, model.subject_area]);
 
+  // Export Excel XML Specification
+  const handleExportExcel = useCallback(() => {
+    try {
+      const xml = exportExcelXml(model);
+      const blob = new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const safeName = (model.subject_area || 'model').replace(/\s+/g, '_');
+      a.download = `${safeName}_정의서.xml`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert('Excel 정의서 생성 중 오류가 발생했습니다: ' + (err.message || String(err)));
+    }
+  }, [model]);
+
+  // Export Markdown Specification
+  const handleExportMarkdown = useCallback(() => {
+    try {
+      const md = exportMarkdownReport(model);
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const safeName = (model.subject_area || 'model').replace(/\s+/g, '_');
+      a.download = `${safeName}_명세서.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert('Markdown 명세서 생성 중 오류가 발생했습니다: ' + (err.message || String(err)));
+    }
+  }, [model]);
+
+  // Handle entity selection from Linter
+  const handleSelectEntityFromLinter = useCallback((entityName: string) => {
+    setSelectedEntityName(entityName);
+    setIsLinterOpen(false);
+  }, []);
+
+  // Handle applying auto-discovered relationships
+  const handleApplyDiscoveredRelationships = useCallback((newRels: Relationship[]) => {
+    if (newRels.length === 0) return;
+    const updatedModel = {
+      ...model,
+      relationships: [...model.relationships, ...newRels],
+    };
+    syncModelToYaml(updatedModel);
+    setIsDiscoveryOpen(false);
+  }, [model, syncModelToYaml]);
+
   // Import DDL Handler
   const handleDdlImport = useCallback(() => {
     try {
@@ -1892,6 +1953,41 @@ relationships: []
             onClick={() => setIsDictOpen(true)}
           >
             <BookOpen size={16} /> 표준화 사전
+          </button>
+
+          {/* Quality Review & Automation Actions (DA# style) */}
+          <button 
+            className="btn btn-secondary" 
+            title="모델 품질 4대 영역 검토 (기본, 표준화, 관계 일관성, 물리 무결성)"
+            onClick={() => setIsLinterOpen(true)}
+            style={{ border: '1px solid #10b981', color: '#10b981' }}
+          >
+            <ShieldCheck size={16} /> 모델 검토
+          </button>
+
+          <button 
+            className="btn btn-secondary" 
+            title="PK-속성 기반 1:N 외래키 관계 자동 발견"
+            onClick={() => setIsDiscoveryOpen(true)}
+            style={{ border: '1px solid #6366f1', color: '#6366f1' }}
+          >
+            <Network size={16} /> 관계 찾기
+          </button>
+
+          <button 
+            className="btn btn-secondary" 
+            title="엔터티/테이블/컬럼/관계 정의서 Excel XML 내보내기"
+            onClick={handleExportExcel}
+          >
+            <FileSpreadsheet size={16} /> 정의서 (Excel)
+          </button>
+
+          <button 
+            className="btn btn-secondary" 
+            title="Markdown 포맷 모델 설계 명세서 내보내기"
+            onClick={handleExportMarkdown}
+          >
+            <FileText size={16} /> 명세서 (MD)
           </button>
 
           {activeFileName && activeFileName.startsWith('logical/') && (
@@ -2814,6 +2910,22 @@ relationships: []
           onSavePhysicalFile={handleSavePhysicalFile}
         />
       )}
+
+      {/* Model Linter (4 Pillars Quality Review) Modal */}
+      <ModelLinterModal
+        isOpen={isLinterOpen}
+        onClose={() => setIsLinterOpen(false)}
+        model={model}
+        onSelectEntity={handleSelectEntityFromLinter}
+      />
+
+      {/* Auto-Relationship Discovery Modal */}
+      <RelationshipDiscoveryModal
+        isOpen={isDiscoveryOpen}
+        onClose={() => setIsDiscoveryOpen(false)}
+        model={model}
+        onApplyRelationships={handleApplyDiscoveredRelationships}
+      />
     </div>
   );
 }
