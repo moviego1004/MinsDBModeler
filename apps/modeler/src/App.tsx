@@ -977,9 +977,7 @@ relationships: []
       if (parentId) {
         absoluteX = globalX + (layout.localX ?? PADDING);
         absoluteY = globalY + (layout.localY ?? 0);
-      }
-
-      if (existingPositions.has(name)) {
+      } else if (existingPositions.has(name)) {
         const cached = existingPositions.get(name)!;
         if (cached.width) layout.width = cached.width;
         if (cached.height) layout.height = cached.height;

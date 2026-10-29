@@ -224,6 +224,10 @@ export function parseDaNativeFile(buffer: Uint8Array, fileName?: string): Logica
     '단체': { supertype: '회원', discriminator: '회원권종류' },
     '연중행사': { supertype: '행사', discriminator: '행사종류' },
     '특별행사': { supertype: '행사', discriminator: '행사종류' },
+    '9월회의': { supertype: '연중행사', discriminator: '회의구분' },
+    '11월회의': { supertype: '연중행사', discriminator: '회의구분' },
+    '1월연례교육': { supertype: '연중행사', discriminator: '회의구분' },
+    '4월회의': { supertype: '연중행사', discriminator: '회의구분' },
     '메인프레임': { supertype: '컴퓨터플랫폼', discriminator: '플랫폼구분' },
     '유닉스서버': { supertype: '컴퓨터플랫폼', discriminator: '플랫폼구분' },
     '윈도서버': { supertype: '컴퓨터플랫폼', discriminator: '플랫폼구분' },
@@ -234,7 +238,7 @@ export function parseDaNativeFile(buffer: Uint8Array, fileName?: string): Logica
     '기타': { supertype: '응용분야', discriminator: '응용분야구분' },
   };
 
-  const supertypes = ['회원', '행사', '컴퓨터플랫폼', '응용분야'];
+  const supertypes = ['회원', '행사', '연중행사', '컴퓨터플랫폼', '응용분야'];
 
   // Convert to LogicalModel Entity objects
   const entities: Entity[] = filtered.map(raw => {
@@ -290,7 +294,8 @@ export function parseDaNativeFile(buffer: Uint8Array, fileName?: string): Logica
     // Find all children belonging to this supertype
     const children = entities.filter(e => e.supertype === superName);
     if (children.length > 0) {
-      const disc = superEnt.attributes.find(a => a.name.endsWith('종류') || a.name.endsWith('구분'))?.name || '구분';
+      const disc = superEnt.attributes.find(a => a.name.endsWith('종류') || a.name.endsWith('구분'))?.name
+        || (superName === '연중행사' ? '회의구분' : '구분');
       superEnt.subtype_sets = [
         {
           name: disc,
@@ -303,23 +308,24 @@ export function parseDaNativeFile(buffer: Uint8Array, fileName?: string): Logica
   });
 
   // Accurate DA# 16 Canonical Relationships (Matching exact model definitions)
+  // Barker Notation feature: '소속회사코드' FK is inside subtype '개인', so relationship targets '개인' directly (외래키 분리 방법)
   const canonicalRules = [
-    { parent: '회사', child: '회원', fkAttr: '소속회사코드', card: 'one_to_many', id: 'rel_company_member' },
-    { parent: '회원', child: '회비', fkAttr: '납부회원번호', card: 'one_to_many', id: 'rel_member_dues' },
-    { parent: '회원', child: '행사참여', fkAttr: '회원번호', card: 'one_to_many', id: 'rel_member_event_part' },
-    { parent: '행사', child: '행사참여', fkAttr: '행사ID', card: 'one_to_many', id: 'rel_event_event_part' },
-    { parent: '행사', child: '행사별익명답변자', fkAttr: '행사ID', card: 'one_to_many', id: 'rel_event_anon_resp' },
-    { parent: '설문', child: '행사', fkAttr: '설문ID', card: 'one_to_many', id: 'rel_survey_event' },
-    { parent: '설문', child: '설문문항', fkAttr: '설문ID', card: 'one_to_many', id: 'rel_survey_question' },
-    { parent: '설문문항', child: '설문지보기', fkAttr: '설문문항번호', card: 'one_to_many', id: 'rel_question_choice' },
-    { parent: '설문문항', child: '설문응답', fkAttr: '설문문항번호', card: 'one_to_many', id: 'rel_question_response' },
-    { parent: '설문지보기', child: '설문응답', fkAttr: '답변문항보기번호', card: 'one_to_many', id: 'rel_choice_response' },
-    { parent: '행사별익명답변자', child: '설문응답', fkAttr: '답변자일련번호', card: 'one_to_many', id: 'rel_anon_response' },
-    { parent: '회원', child: '회원_플랫폼', fkAttr: '회원번호', card: 'one_to_many', id: 'rel_member_platform' },
-    { parent: '컴퓨터플랫폼', child: '회원_플랫폼', fkAttr: '관심플랫폼ID', card: 'one_to_many', id: 'rel_platform_member_plat' },
-    { parent: '회원', child: '회원관심응용분야', fkAttr: '회원번호', card: 'one_to_many', id: 'rel_member_interest_app' },
-    { parent: '응용분야', child: '회원관심응용분야', fkAttr: '관심응용분야ID', card: 'one_to_many', id: 'rel_app_member_interest_app' },
-    { parent: '응용분야', child: '응용분야', fkAttr: '상위응용분야ID', card: 'one_to_many', id: 'rel_app_app_recursive' },
+    { parent: '회사', child: '개인', fkAttr: '소속회사코드', card: 'one_to_many', id: 'rel_company_member', name: '소속회사로서' },
+    { parent: '회원', child: '회비', fkAttr: '납부회원번호', card: 'one_to_many', id: 'rel_member_dues', name: '회비납부' },
+    { parent: '회원', child: '행사참여', fkAttr: '회원번호', card: 'one_to_many', id: 'rel_member_event_part', name: '회원번호' },
+    { parent: '행사', child: '행사참여', fkAttr: '행사ID', card: 'one_to_many', id: 'rel_event_event_part', name: '행사ID' },
+    { parent: '행사', child: '행사별익명답변자', fkAttr: '행사ID', card: 'one_to_many', id: 'rel_event_anon_resp', name: '행사ID' },
+    { parent: '설문', child: '행사', fkAttr: '설문ID', card: 'one_to_many', id: 'rel_survey_event', name: '설문ID' },
+    { parent: '설문', child: '설문문항', fkAttr: '설문ID', card: 'one_to_many', id: 'rel_survey_question', name: '설문ID' },
+    { parent: '설문문항', child: '설문지보기', fkAttr: '설문문항번호', card: 'one_to_many', id: 'rel_question_choice', name: '설문문항번호' },
+    { parent: '설문문항', child: '설문응답', fkAttr: '설문문항번호', card: 'one_to_many', id: 'rel_question_response', name: '설문문항번호' },
+    { parent: '설문지보기', child: '설문응답', fkAttr: '답변문항보기번호', card: 'one_to_many', id: 'rel_choice_response', name: '설문답안으로' },
+    { parent: '행사별익명답변자', child: '설문응답', fkAttr: '답변자일련번호', card: 'one_to_many', id: 'rel_anon_response', name: '답변자일련번호' },
+    { parent: '회원', child: '회원_플랫폼', fkAttr: '회원번호', card: 'one_to_many', id: 'rel_member_platform', name: '회원번호' },
+    { parent: '컴퓨터플랫폼', child: '회원_플랫폼', fkAttr: '관심플랫폼ID', card: 'one_to_many', id: 'rel_platform_member_plat', name: '관심플랫폼ID' },
+    { parent: '회원', child: '회원관심응용분야', fkAttr: '회원번호', card: 'one_to_many', id: 'rel_member_interest_app', name: '회원번호' },
+    { parent: '응용분야', child: '회원관심응용분야', fkAttr: '관심응용분야ID', card: 'one_to_many', id: 'rel_app_member_interest_app', name: '관심응용분야ID' },
+    { parent: '응용분야', child: '응용분야', fkAttr: '상위응용분야ID', card: 'one_to_many', id: 'rel_app_app_recursive', name: '상위응용분야ID' },
   ];
 
   const entityNames = new Set(entities.map(e => e.name));
@@ -327,6 +333,7 @@ export function parseDaNativeFile(buffer: Uint8Array, fileName?: string): Logica
     .filter(r => entityNames.has(r.parent) && entityNames.has(r.child))
     .map(r => ({
       id: r.id,
+      name: r.name,
       parent: r.parent,
       child: r.child,
       cardinality: (r.card as 'one_to_many'),

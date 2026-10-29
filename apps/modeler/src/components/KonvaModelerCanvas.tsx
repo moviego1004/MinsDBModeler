@@ -354,24 +354,65 @@ export default function KonvaModelerCanvas({
   const handleDragEnd = (node: any, e: any) => {
     const newX = e.target.x();
     const newY = e.target.y();
-    console.log("🔴 [Konva Canvas] Node Drag End. ID:", node.id, "coords:", newX, newY);
+    const oldX = node.position?.x ?? 0;
+    const oldY = node.position?.y ?? 0;
+    const deltaX = newX - oldX;
+    const deltaY = newY - oldY;
+
+    // Collect all descendant nodes (children, grandchildren) that belong to this supertype/group
+    const descendantIds = new Set<string>();
+    const findDescendants = (parentId: string) => {
+      nodes.forEach((n) => {
+        if (n.parentId === parentId && !descendantIds.has(n.id)) {
+          descendantIds.add(n.id);
+          findDescendants(n.id);
+        }
+      });
+    };
+    findDescendants(node.id);
+
+    const changes: any[] = [
+      {
+        id: node.id,
+        type: 'position',
+        position: { x: newX, y: newY },
+      },
+    ];
+
+    descendantIds.forEach((descId) => {
+      const desc = nodes.find((n) => n.id === descId);
+      if (desc && desc.position) {
+        changes.push({
+          id: descId,
+          type: 'position',
+          position: {
+            x: (desc.position.x ?? 0) + deltaX,
+            y: (desc.position.y ?? 0) + deltaY,
+          },
+        });
+      }
+    });
 
     // Trigger position update via onNodesChange (matching React Flow changes spec)
     if (onNodesChange) {
-      onNodesChange([
-        {
-          id: node.id,
-          type: 'position',
-          position: { x: newX, y: newY },
-        },
-      ]);
+      onNodesChange(changes);
     }
 
     // Trigger drag stop callback
     if (onNodeDragStop) {
-      const updatedNodes = nodes.map((n) =>
-        n.id === node.id ? { ...n, position: { x: newX, y: newY } } : n
-      );
+      const updatedNodes = nodes.map((n) => {
+        if (n.id === node.id) return { ...n, position: { x: newX, y: newY } };
+        if (descendantIds.has(n.id) && n.position) {
+          return {
+            ...n,
+            position: {
+              x: (n.position.x ?? 0) + deltaX,
+              y: (n.position.y ?? 0) + deltaY,
+            },
+          };
+        }
+        return n;
+      });
       onNodeDragStop(e.evt, { ...node, position: { x: newX, y: newY } }, updatedNodes);
     }
   };
@@ -388,14 +429,17 @@ export default function KonvaModelerCanvas({
     const isPhysical = viewMode === 'physical' || node.data?.isPhysical;
 
     if (type === 'supertypeGroup') {
-      // Custom Group Node (Supertype)
+      // Custom Group Node (Barker Supertype - DA# style olive/green container)
       const attributes: any[] = node.data?.attributes || [];
+      const superBg = '#e8f0d8'; // Barker supertype signature pale green
+      const superBorder = isSelected ? theme.primary : '#334155';
+
       return (
         <Group
           key={node.id}
           x={posX}
           y={posY}
-          draggable
+          draggable={!node.parentId}
           onDragStart={(e) => {
             e.cancelBubble = true;
           }}
@@ -406,71 +450,61 @@ export default function KonvaModelerCanvas({
           <Rect
             width={width}
             height={height}
-            fill={theme.groupBg}
-            stroke={isSelected ? theme.primary : theme.border}
-            strokeWidth={isSelected ? 2 : 1}
-            cornerRadius={8}
+            fill={superBg}
+            stroke={superBorder}
+            strokeWidth={isSelected ? 2.5 : 1.5}
+            cornerRadius={10}
+            shadowColor="rgba(0,0,0,0.06)"
+            shadowBlur={4}
+            shadowOffset={{ x: 0, y: 1 }}
           />
-          {/* Header */}
-          <Rect
-            width={width}
-            height={36}
-            fill={theme.entityHeaderBg}
-            cornerRadius={[8, 8, 0, 0]}
-          />
+          {/* Header Title */}
           <Text
             text={node.data.label || node.data.name}
-            x={12}
+            x={14}
             y={12}
             fontSize={13}
             fontStyle="bold"
-            fill={theme.text}
+            fill="#1e293b"
           />
           {(() => {
             const classification = node.data.classification;
-            const classColor = classification === 'KEY' ? '#3b82f6' : classification === 'MAIN' ? '#10b981' : classification === 'ACTION' ? '#f59e0b' : theme.primary;
-            const superLabel = classification ? `${classification} | SUPERTYPE` : 'SUPERTYPE';
+            if (!classification) return null;
+            const classColor = classification === 'KEY' ? '#2563eb' : classification === 'MAIN' ? '#059669' : '#d97706';
             return (
               <Text
-                text={superLabel}
-                x={width - 120}
+                text={classification}
+                x={width - 80}
                 y={12}
                 fontSize={9}
                 fontStyle="bold"
                 fill={classColor}
                 align="right"
-                width={110}
+                width={70}
               />
             );
           })()}
-          
-          {/* Bottom line for header */}
-          <Line
-            points={[0, 36, width, 36]}
-            stroke={theme.border}
-            strokeWidth={1}
-          />
 
           {/* Attributes List */}
-          <Group y={42}>
+          <Group y={36}>
             {attributes.map((attr, idx) => {
-              const yPos = idx * 22;
+              const yPos = idx * 20;
               const isPK = attr.identifier;
               const isRequired = attr.required;
               const isFK = attr.fk;
 
               let marker = 'o';
-              let markerColor = theme.textMuted;
+              let markerColor = '#64748b';
               if (isPK) {
                 marker = '#';
-                markerColor = theme.primary;
+                markerColor = '#0f172a';
               } else if (isRequired) {
                 marker = '*';
-                markerColor = theme.warning;
+                markerColor = '#0f172a';
               }
 
               return (
-                <Group key={idx} y={yPos} x={12}>
+                <Group key={idx} y={yPos} x={14}>
                   {/* Marker Symbol */}
                   <Text
                     text={marker}
@@ -486,7 +520,8 @@ export default function KonvaModelerCanvas({
                     x={15}
                     y={2}
                     fontSize={11}
-                    fill={theme.text}
+                    fontStyle={isPK ? 'bold' : 'normal'}
+                    fill="#1e293b"
                     width={width - 120}
                     ellipsis
                   />
@@ -497,7 +532,7 @@ export default function KonvaModelerCanvas({
                       x={width - 110}
                       y={2}
                       fontSize={9}
-                      fill={theme.textMuted}
+                      fill="#64748b"
                       align="right"
                       width={80}
                       ellipsis
@@ -518,18 +553,14 @@ export default function KonvaModelerCanvas({
           key={node.id}
           x={posX}
           y={posY}
-          draggable
-          onDragStart={(e) => {
-            e.cancelBubble = true;
-          }}
+          draggable={false}
           onClick={(e) => handleNodeClick(node, e)}
           onDblClick={(e) => handleNodeDblClick(node, e)}
-          onDragEnd={(e) => handleDragEnd(node, e)}
         >
           <Rect
             width={width}
             height={height}
-            fill="rgba(254, 240, 138, 0.35)"
+            fill="rgba(254, 249, 195, 0.75)"
             stroke="#ca8a04"
             strokeWidth={1.2}
             cornerRadius={8}
@@ -557,7 +588,7 @@ export default function KonvaModelerCanvas({
           key={node.id}
           x={posX}
           y={posY}
-          draggable
+          draggable={!node.parentId}
           onDragStart={(e) => {
             e.cancelBubble = true;
           }}
@@ -569,8 +600,8 @@ export default function KonvaModelerCanvas({
             width={width}
             height={height}
             fill="#ffffff"
-            stroke={isSelected ? theme.primary : '#64748b'}
-            strokeWidth={isSelected ? 2 : 1}
+            stroke={isSelected ? theme.primary : '#1e293b'}
+            strokeWidth={isSelected ? 2 : 1.2}
             cornerRadius={height / 2}
             shadowColor="rgba(0,0,0,0.06)"
             shadowBlur={3}
@@ -595,7 +626,7 @@ export default function KonvaModelerCanvas({
         key={node.id}
         x={posX}
         y={posY}
-        draggable
+        draggable={!node.parentId}
         onDragStart={(e) => {
           e.cancelBubble = true;
         }}
@@ -607,25 +638,26 @@ export default function KonvaModelerCanvas({
         <Rect
           width={width}
           height={height}
-          fill={theme.entityBg}
-          stroke={isSelected ? theme.primary : isSubtype ? theme.textMuted : theme.entityBorder}
-          strokeWidth={isSelected ? 2 : 1}
-          dash={isSubtype ? [5, 4] : undefined}
+          fill="#ffffff"
+          stroke={isSelected ? theme.primary : '#1e293b'}
+          strokeWidth={isSelected ? 2 : 1.2}
           cornerRadius={6}
+          shadowColor="rgba(0,0,0,0.06)"
+          shadowBlur={3}
+          shadowOffset={{ x: 0, y: 1 }}
         />
         {/* Header bar */}
         <Rect
           width={width}
-          height={32}
-          fill={theme.entityHeaderBg}
+          height={30}
+          fill={isSubtype ? '#ffffff' : theme.entityHeaderBg}
           cornerRadius={[6, 6, 0, 0]}
         />
         {/* Bottom line for header */}
         <Line
-          points={[0, 32, width, 32]}
-          stroke={isSubtype ? theme.textMuted : theme.entityBorder}
+          points={[0, 30, width, 30]}
+          stroke={isSelected ? theme.primary : '#1e293b'}
           strokeWidth={1}
-          dash={isSubtype ? [5, 4] : undefined}
         />
         {/* Title */}
         <Text
@@ -913,29 +945,29 @@ export default function KonvaModelerCanvas({
           />
         ))}
 
-        {/* Interactive Relationship Label on Hover/Select (DA# style inspection) */}
-        {isHighlighted && midPoint && (
+        {/* Relationship Label (DA# style always-visible clean label badge) */}
+        {midPoint && (relLabel || isHighlighted) && (
           <Group x={midPoint.x} y={midPoint.y}>
             <Rect
-              x={-(relLabel.length * 3.5 + 10)}
-              y={-11}
-              width={relLabel.length * 7 + 20}
-              height={22}
-              fill={theme.bg}
-              stroke={theme.primary}
-              strokeWidth={1.5}
+              x={-(relLabel.length * 3.2 + 8)}
+              y={-10}
+              width={relLabel.length * 6.4 + 16}
+              height={20}
+              fill={isHighlighted ? theme.bg : '#ffffff'}
+              stroke={isHighlighted ? theme.primary : '#cbd5e1'}
+              strokeWidth={isHighlighted ? 1.5 : 0.8}
               cornerRadius={4}
-              shadowColor="rgba(0,0,0,0.2)"
-              shadowBlur={6}
-              shadowOffset={{ x: 0, y: 2 }}
+              shadowColor="rgba(0,0,0,0.06)"
+              shadowBlur={3}
+              shadowOffset={{ x: 0, y: 1 }}
             />
             <Text
-              x={-(relLabel.length * 3.5 + 8)}
+              x={-(relLabel.length * 3.2 + 6)}
               y={-5}
               text={relLabel}
-              fontSize={11}
-              fontStyle="bold"
-              fill={theme.primary}
+              fontSize={10}
+              fontStyle={isHighlighted ? 'bold' : 'normal'}
+              fill={isHighlighted ? theme.primary : '#334155'}
               align="center"
               listening={false}
             />
@@ -967,11 +999,17 @@ export default function KonvaModelerCanvas({
         draggable
       >
         <Layer>
-          {/* Render Relationships (Edges) first so they lay behind Nodes */}
+          {/* 1. Containers: Supertype Groups first */}
+          {nodes.filter((n) => n.type === 'supertypeGroup').map(renderNode)}
+
+          {/* 2. Subtype Sets */}
+          {nodes.filter((n) => n.type === 'subtypeSetGroup').map(renderNode)}
+
+          {/* 3. Relationship Lines (penetrate into supertypes and land on subtype boxes) */}
           {edges.map(renderEdge)}
 
-          {/* Render Entity and Group Nodes */}
-          {nodes.map(renderNode)}
+          {/* 4. Entity Nodes and Subtypes (rendered on top of relationship lines) */}
+          {nodes.filter((n) => n.type !== 'supertypeGroup' && n.type !== 'subtypeSetGroup').map(renderNode)}
         </Layer>
       </Stage>
 
