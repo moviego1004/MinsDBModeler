@@ -34,3 +34,10 @@ lerna-debug.log*
 .env.test.local
 .env.production.local
 .env
+
+# Large binaries & installers
+*.exe
+*.msi
+doc/참고/DA#/*.exe
+doc/참고/DA#/*.pdf
+

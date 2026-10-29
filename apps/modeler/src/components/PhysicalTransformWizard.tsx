@@ -17,6 +17,7 @@ import {
 import type { StandardizationDictionary } from '../services/dictionaryStorage.js';
 import type { LogicalModel, Entity, Relationship } from '@barker-modeler/model-core';
 import { parseModel } from '@barker-modeler/model-core';
+import { parse as yamlParse } from 'yaml';
 
 interface PhysicalTransformWizardProps {
   model: LogicalModel;
@@ -39,18 +40,62 @@ export default function PhysicalTransformWizard({
   const [namingCase, setNamingCase] = useState<'UPPER' | 'CAMEL'>('UPPER');
   const [transformScope, setTransformScope] = useState<'PROJECT' | 'FILE'>('PROJECT');
   
-  const [dict, setDict] = useState<StandardizationDictionary>(() => getDictionary());
+  const [dict, setDict] = useState<StandardizationDictionary>(() => {
+    const dictionaryFile = projectFiles.find(f => f.name === 'standardization/dictionary.yaml');
+    const domainsFile = projectFiles.find(f => f.name === 'standardization/domains.yaml');
+    
+    if (dictionaryFile || domainsFile) {
+      try {
+        const dictYaml = dictionaryFile ? yamlParse(dictionaryFile.content) as any : {};
+        const domainsYaml = domainsFile ? yamlParse(domainsFile.content) as any : {};
+        
+        const words = Array.isArray(dictYaml.words) 
+          ? dictYaml.words.map((w: any) => ({
+              logicalName: w.logicalName || w.logical || '',
+              physicalAbbr: w.physicalAbbr || w.physical || ''
+            }))
+          : [];
+
+        const terms = Array.isArray(dictYaml.terms)
+          ? dictYaml.terms.map((t: any) => ({
+              logicalName: t.logicalName || t.logical || '',
+              physicalName: t.physicalName || t.physical || ''
+            }))
+          : [];
+
+        const domains = Array.isArray(domainsYaml.domains)
+          ? domainsYaml.domains.map((d: any) => ({
+              logicalName: d.logicalName || d.logical || d.name || '',
+              physicalName: d.physicalName || d.physical || d.type || ''
+            }))
+          : [];
+
+        return {
+          domains,
+          words,
+          terms,
+          codes: dictYaml.codes || []
+        };
+      } catch (e) {
+        console.error('Failed to parse project dictionary files, using global dictionary', e);
+      }
+    }
+    return getDictionary();
+  });
   const [newWordsMap, setNewWordsMap] = useState<Record<string, string>>({});
 
-  // Gather all entities defined in any project files
+  // Gather all entities defined in logical model files (exclude conceptual files)
   const allProjectEntities = useMemo(() => {
     const entities: Entity[] = [];
     const addedNames = new Set<string>();
     projectFiles.forEach((f: any) => {
+      if (f.name.startsWith('conceptual/') || !f.name.endsWith('.yaml')) {
+        return;
+      }
       try {
         const parsed = parseModel(f.content);
-        parsed.entities.forEach(ent => {
-          if (!addedNames.has(ent.name)) {
+        (parsed.entities || []).forEach(ent => {
+          if (ent && ent.name && !addedNames.has(ent.name)) {
             entities.push(ent);
             addedNames.add(ent.name);
           }
@@ -62,15 +107,18 @@ export default function PhysicalTransformWizard({
     return entities;
   }, [projectFiles]);
 
-  // Gather all relationships defined in any project files
+  // Gather all relationships defined in logical model files (exclude conceptual files)
   const allProjectRelationships = useMemo(() => {
     const list: Relationship[] = [];
     const addedIds = new Set<string>();
     projectFiles.forEach((f: any) => {
+      if (f.name.startsWith('conceptual/') || !f.name.endsWith('.yaml')) {
+        return;
+      }
       try {
         const parsed = parseModel(f.content);
-        parsed.relationships.forEach(rel => {
-          if (!addedIds.has(rel.id)) {
+        (parsed.relationships || []).forEach(rel => {
+          if (rel && rel.id && !addedIds.has(rel.id)) {
             list.push(rel);
             addedIds.add(rel.id);
           }
@@ -85,17 +133,19 @@ export default function PhysicalTransformWizard({
   // 1. Scan model for non-standard words
   const nonStandardWordsResult = useMemo(() => {
     const wordSet = new Set<string>();
-    const targetEntities = transformScope === 'PROJECT' ? allProjectEntities : model.entities;
+    const targetEntities = transformScope === 'PROJECT' ? allProjectEntities : (model?.entities || []);
     
     // Scan all Entity names
     targetEntities.forEach(ent => {
+      if (!ent || !ent.name) return;
       const res = translateLogicalName(ent.name, dict, namingCase);
-      res.nonStandardWords.forEach(w => wordSet.add(w));
+      (res.nonStandardWords || []).forEach(w => wordSet.add(w));
       
       // Scan all Attribute names
-      ent.attributes.forEach(attr => {
+      (ent.attributes || []).forEach(attr => {
+        if (!attr || !attr.name) return;
         const aRes = translateLogicalName(attr.name, dict, namingCase);
-        aRes.nonStandardWords.forEach(w => wordSet.add(w));
+        (aRes.nonStandardWords || []).forEach(w => wordSet.add(w));
       });
     });
 
@@ -112,7 +162,7 @@ export default function PhysicalTransformWizard({
     
     const updatedDict = {
       ...dict,
-      words: [...dict.words, { logicalName: korean, physicalAbbr: abbr }]
+      words: [...(dict?.words || []), { logicalName: korean, physicalAbbr: abbr }]
     };
     setDict(updatedDict);
     saveDictionary(updatedDict);
@@ -131,12 +181,16 @@ export default function PhysicalTransformWizard({
 
     // Helper map to quickly find parent entities across the entire project
     const entityMap = new Map<string, Entity>();
-    allProjectEntities.forEach(ent => entityMap.set(ent.name, ent));
+    allProjectEntities.forEach(ent => {
+      if (ent && ent.name) {
+        entityMap.set(ent.name, ent);
+      }
+    });
 
     // Map parent to children subtypes project-wide
     const parentToSubtypes = new Map<string, string[]>();
     allProjectEntities.forEach(ent => {
-      if (ent.supertype) {
+      if (ent && ent.name && ent.supertype) {
         const list = parentToSubtypes.get(ent.supertype) || [];
         list.push(ent.name);
         parentToSubtypes.set(ent.supertype, list);
@@ -144,7 +198,7 @@ export default function PhysicalTransformWizard({
     });
 
     // Determine tables to create based on subtype strategy and transform scope
-    const targetEntities = transformScope === 'PROJECT' ? allProjectEntities : model.entities;
+    const targetEntities = transformScope === 'PROJECT' ? allProjectEntities : (model?.entities || []);
 
     const tables: Array<{
       logicalName: string;
@@ -166,10 +220,12 @@ export default function PhysicalTransformWizard({
     // Map Logical Entity Name -> Physical Table Name for all project entities
     const entityToTable = new Map<string, string>();
     allProjectEntities.forEach(ent => {
-      let pTable = translateLogicalName(ent.name, dict, namingCase).physicalName;
-      // Prepend TB_ for cleaner database tables (classic professional standard)
-      pTable = `TB_${pTable}`;
-      entityToTable.set(ent.name, pTable);
+      if (ent && ent.name) {
+        let pTable = translateLogicalName(ent.name, dict, namingCase).physicalName;
+        // Prepend TB_ for cleaner database tables (classic professional standard)
+        pTable = `TB_${pTable}`;
+        entityToTable.set(ent.name, pTable);
+      }
     });
 
     // Helper to resolve parent columns recursively for ROLL_DOWN
@@ -179,7 +235,7 @@ export default function PhysicalTransformWizard({
       while (current && current.supertype) {
         const parent = entityMap.get(current.supertype);
         if (parent) {
-          parent.attributes.forEach(attr => {
+          (parent.attributes || []).forEach(attr => {
             const pCol = translateLogicalName(attr.name, dict, namingCase).physicalName;
             const pType = resolveDataType(attr.domain, attr.name, dbType, dict);
             cols.push({
@@ -227,7 +283,7 @@ export default function PhysicalTransformWizard({
       }
 
       // 2. Add local attributes
-      ent.attributes.forEach(attr => {
+      (ent.attributes || []).forEach(attr => {
         const pCol = translateLogicalName(attr.name, dict, namingCase).physicalName;
         const pType = resolveDataType(attr.domain, attr.name, dbType, dict);
         columns.push({
@@ -257,7 +313,7 @@ export default function PhysicalTransformWizard({
         allSubtypes.forEach(subName => {
           const subEnt = entityMap.get(subName);
           if (subEnt) {
-            subEnt.attributes.forEach(attr => {
+            (subEnt.attributes || []).forEach(attr => {
               // Avoid duplicate column names if already defined
               const pCol = translateLogicalName(attr.name, dict, namingCase).physicalName;
               if (columns.some(c => c.columnName === pCol)) return;
@@ -299,27 +355,29 @@ export default function PhysicalTransformWizard({
           
           // Assuming single primary key
           const parentPkName = Array.isArray(parentEnt.identifier) ? parentEnt.identifier[0] : parentEnt.identifier;
-          const pParentPkCol = translateLogicalName(parentPkName, dict, namingCase).physicalName;
-          const pParentPkType = resolveDataType(parentEnt.attributes.find(a => a.name === parentPkName)?.domain, parentPkName, dbType, dict);
+          if (parentPkName) {
+            const pParentPkCol = translateLogicalName(parentPkName, dict, namingCase).physicalName;
+            const pParentPkType = resolveDataType((parentEnt.attributes || []).find(a => a.name === parentPkName)?.domain, parentPkName, dbType, dict);
 
-          // Force the PK column to be the primary key and foreign key referencing supertype
-          const existingPkIdx = columns.findIndex(c => c.primaryKey);
-          if (existingPkIdx !== -1) {
-            columns[existingPkIdx].foreignKey = true;
-            columns[existingPkIdx].refTable = pParentTable;
-            columns[existingPkIdx].refColumn = pParentPkCol;
-          } else {
-            columns.unshift({
-              logicalName: parentPkName,
-              columnName: pParentPkCol,
-              dataType: pParentPkType,
-              primaryKey: true,
-              nullable: false,
-              foreignKey: true,
-              refTable: pParentTable,
-              refColumn: pParentPkCol,
-              description: `[IDENTITY PK/FK] ${parentEnt.name} 테이블 참조`
-            });
+            // Force the PK column to be the primary key and foreign key referencing supertype
+            const existingPkIdx = columns.findIndex(c => c.primaryKey);
+            if (existingPkIdx !== -1) {
+              columns[existingPkIdx].foreignKey = true;
+              columns[existingPkIdx].refTable = pParentTable;
+              columns[existingPkIdx].refColumn = pParentPkCol;
+            } else {
+              columns.unshift({
+                logicalName: parentPkName,
+                columnName: pParentPkCol,
+                dataType: pParentPkType,
+                primaryKey: true,
+                nullable: false,
+                foreignKey: true,
+                refTable: pParentTable,
+                refColumn: pParentPkCol,
+                description: `[IDENTITY PK/FK] ${parentEnt.name} 테이블 참조`
+              });
+            }
           }
         }
       }
@@ -389,8 +447,10 @@ export default function PhysicalTransformWizard({
 
       // Extract parent's PK column details
       const parentPkAttr = Array.isArray(parentEnt.identifier) ? parentEnt.identifier[0] : parentEnt.identifier;
+      if (!parentPkAttr) return;
+
       const pParentPkCol = translateLogicalName(parentPkAttr, dict, namingCase).physicalName;
-      const pParentPkType = resolveDataType(parentEnt.attributes.find(a => a.name === parentPkAttr)?.domain, parentPkAttr, dbType, dict);
+      const pParentPkType = resolveDataType((parentEnt.attributes || []).find(a => a.name === parentPkAttr)?.domain, parentPkAttr, dbType, dict);
 
       // Check if FK column already exists in child table
       let fkColName = pParentPkCol;
@@ -506,7 +566,7 @@ export default function PhysicalTransformWizard({
       tablesCount: tables.length,
       columnsCount: tables.reduce((acc, t) => acc + t.columns.length, 0),
     };
-  }, [model, dict, dbType, subtypeStrategy, namingCase, activeFileName]);
+  }, [model, dict, dbType, subtypeStrategy, namingCase, activeFileName, nonStandardWordsResult, transformScope, allProjectEntities, allProjectRelationships]);
 
   const handleCopyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);

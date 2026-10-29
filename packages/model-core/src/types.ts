@@ -1,11 +1,15 @@
 export interface Attribute {
+  id?: string;
   name: string;
+  physicalName?: string;
   domain?: string;
   required: boolean;
   identifier?: boolean;
+  keyType?: 'PK' | 'AK' | 'FK' | 'NORMAL';
   fk?: boolean;
   description?: string;
   defaultValue?: string;
+  alias?: string;
 }
 
 export interface SubtypeSetRef {
@@ -15,9 +19,22 @@ export interface SubtypeSetRef {
   subtypes: string[];
 }
 
+export interface EntityVolumeInfo {
+  period?: 'daily' | 'monthly' | 'yearly' | 'on_demand';
+  monthlyQuantity?: number;
+  retentionMonths?: number;
+  totalQuantity?: number;
+}
+
 export interface Entity {
+  id?: string;
   name: string;
+  physicalName?: string;
+  alias?: string;
   type: 'entity' | 'supertype' | 'subtype';
+  classification?: 'KEY' | 'MAIN' | 'ACTION';
+  level?: 1 | 2 | 3;
+  volume?: EntityVolumeInfo;
   supertype?: string;
   identifier: string | string[];
   discriminator?: string;
@@ -25,6 +42,7 @@ export interface Entity {
   subtype_sets?: SubtypeSetRef[];
   key_attributes?: string[];
   purpose?: string;
+  business_rules?: string[];
 }
 
 export interface SubtypeSet {
@@ -45,6 +63,8 @@ export interface Relationship {
   name?: string;
   parent: string;
   child: string;
+  parentEntityId?: string;
+  childEntityId?: string;
   parent_to_child?: string;
   child_to_parent?: string;
   cardinality: 'one_to_one' | 'one_to_many' | 'many_to_many';
@@ -54,11 +74,16 @@ export interface Relationship {
   fk_attributes?: string[];
   barker_sentence?: string;
   recursive?: boolean;
+  ri_rule?: {
+    on_update?: 'CASCADE' | 'RESTRICT' | 'SET_NULL' | 'NO_ACTION';
+    on_delete?: 'CASCADE' | 'RESTRICT' | 'SET_NULL' | 'NO_ACTION';
+  };
 }
 
 export interface DiagramObject {
   id: string;
-  modelRef: string; // References Entity name
+  modelRef: string; // References Entity name or Entity id
+  entityId?: string;
   x: number;
   y: number;
   width: number;

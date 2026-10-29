@@ -16,6 +16,7 @@ interface EntityNodeProps {
 
 export default function CustomEntityNode({ data, selected }: EntityNodeProps) {
   const { name, type, attributes, onAttributeClick, onAddAttributeClick } = data;
+  const isPhysical = (data as any).isPhysical;
 
   return (
     <div 
@@ -44,9 +45,9 @@ export default function CustomEntityNode({ data, selected }: EntityNodeProps) {
       <div className="entity-node-header">
         <h4 className="entity-node-title">
           {data.isExternal && <span style={{ color: 'var(--warning)', fontSize: '0.65rem', marginRight: '4px' }}>[EXT]</span>}
-          {name}
+          {isPhysical && (data as any).shortName ? `${name} (${(data as any).shortName})` : name}
         </h4>
-        <span className="entity-node-type">{type.toUpperCase()}</span>
+        <span className="entity-node-type">{isPhysical ? 'TABLE' : type.toUpperCase()}</span>
       </div>
 
       {/* Attributes List */}
@@ -56,6 +57,27 @@ export default function CustomEntityNode({ data, selected }: EntityNodeProps) {
             const isPK = attr.identifier;
             const isRequired = attr.required;
             const isFK = attr.fk;
+
+            if (isPhysical) {
+              const constraintText = isPK && isFK ? 'pk, fk' : isPK ? 'pk' : isFK ? 'fk' : '';
+              const nullabilityText = isRequired ? '*' : 'o';
+              
+              return (
+                <div 
+                  key={idx} 
+                  className="physical-table-row"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onAttributeClick?.(attr);
+                  }}
+                >
+                  <div className="physical-col-constraint">{constraintText}</div>
+                  <div className="physical-col-nullability">{nullabilityText}</div>
+                  <div className="physical-col-name">{attr.name}</div>
+                  <div className="physical-col-type">{attr.domain || ''}</div>
+                </div>
+              );
+            }
 
             // Marker symbols: PK (#), Required (*), Optional (o)
             let marker = 'o';

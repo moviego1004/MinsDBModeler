@@ -114,6 +114,21 @@ const DEFAULT_WORDS: StandardWord[] = [
   { logicalName: '설명', physicalAbbr: 'DESC' },
   { logicalName: '업무', physicalAbbr: 'BIZ' },
   { logicalName: '위탁', physicalAbbr: 'CNSG' },
+  { logicalName: '외부', physicalAbbr: 'EXT' },
+  { logicalName: '내부', physicalAbbr: 'INT' },
+  { logicalName: '시스템', physicalAbbr: 'SYS' },
+  { logicalName: '기관', physicalAbbr: 'INST' },
+  { logicalName: '운영', physicalAbbr: 'OPR' },
+  { logicalName: '인증', physicalAbbr: 'AUTH' },
+  { logicalName: '참조', physicalAbbr: 'REF' },
+  { logicalName: '값', physicalAbbr: 'VAL' },
+  { logicalName: '확인', physicalAbbr: 'CHK' },
+  { logicalName: '주기', physicalAbbr: 'CYC' },
+  { logicalName: '초수', physicalAbbr: 'SEC' },
+  { logicalName: '여부', physicalAbbr: 'YN' },
+  { logicalName: '시작', physicalAbbr: 'STRT' },
+  { logicalName: '종료', physicalAbbr: 'END' },
+  { logicalName: '생명주기', physicalAbbr: 'LC' },
 ];
 
 const DEFAULT_TERMS: StandardTerm[] = [
@@ -155,7 +170,16 @@ export function getDictionary(): StandardizationDictionary {
       saveDictionary(initial);
       return initial;
     }
-    return JSON.parse(data);
+    const parsed = JSON.parse(data);
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('Parsed dictionary is not an object');
+    }
+    return {
+      domains: Array.isArray(parsed.domains) ? parsed.domains : DEFAULT_DOMAINS,
+      words: Array.isArray(parsed.words) ? parsed.words : DEFAULT_WORDS,
+      terms: Array.isArray(parsed.terms) ? parsed.terms : DEFAULT_TERMS,
+      codes: Array.isArray(parsed.codes) ? parsed.codes : DEFAULT_CODES,
+    };
   } catch (e) {
     console.error('Failed to parse dictionary, using defaults', e);
     return {
@@ -193,19 +217,29 @@ export interface TranslationResult {
  * Performs Greedy Longest-Match tokenization.
  */
 export function translateLogicalName(
-  logicalName: string,
+  logicalName: any,
   dict: StandardizationDictionary,
   caseType: 'UPPER' | 'CAMEL' = 'UPPER'
 ): TranslationResult {
+  let nameStr = '';
+  if (typeof logicalName === 'string') {
+    nameStr = logicalName;
+  } else if (logicalName && typeof logicalName === 'object') {
+    nameStr = logicalName.name || JSON.stringify(logicalName);
+  } else {
+    nameStr = String(logicalName || '');
+  }
+
   // 1. Check exact term dictionary match first
-  const exactMatch = dict.terms.find(t => t.logicalName === logicalName);
+  const cleanTerms = (dict?.terms || []).filter(t => t && typeof t.logicalName === 'string');
+  const exactMatch = cleanTerms.find(t => t.logicalName === nameStr);
   if (exactMatch) {
-    let pName = exactMatch.physicalName;
+    let pName = exactMatch.physicalName || '';
     if (caseType === 'CAMEL') {
       pName = snakeToCamel(pName);
     }
     return {
-      tokens: [{ text: logicalName, standard: true, abbr: exactMatch.physicalName }],
+      tokens: [{ text: nameStr, standard: true, abbr: exactMatch.physicalName }],
       physicalName: pName,
       hasNonStandard: false,
       nonStandardWords: [],
@@ -213,10 +247,11 @@ export function translateLogicalName(
   }
 
   // Sort words by length descending to ensure greedy longest-match
-  const sortedWords = [...dict.words].sort((a, b) => b.logicalName.length - a.logicalName.length);
+  const cleanWords = (dict?.words || []).filter(w => w && typeof w.logicalName === 'string');
+  const sortedWords = [...cleanWords].sort((a, b) => (b.logicalName || '').length - (a.logicalName || '').length);
 
   const tokens: TokenResult[] = [];
-  let remaining = logicalName;
+  let remaining = nameStr;
   let nonStandardWordAccumulator = '';
   const nonStandardWords: string[] = [];
 
@@ -277,26 +312,27 @@ export function translateLogicalName(
  */
 export function resolveDataType(
   domainName: string | undefined,
-  attributeName: string,
+  attributeName: any,
   dbType: 'ORACLE' | 'POSTGRES' | 'MYSQL',
   dict: StandardizationDictionary
 ): string {
   // If domain is not specified, try to infer from attribute name suffix
   let inferredDomain = domainName;
   if (!inferredDomain) {
-    if (attributeName.endsWith('번호') || attributeName.endsWith('ID') || attributeName.endsWith('Id') || attributeName.endsWith('Seq')) {
+    const attrStr = typeof attributeName === 'string' ? attributeName : String(attributeName || '');
+    if (attrStr.endsWith('번호') || attrStr.endsWith('ID') || attrStr.endsWith('Id') || attrStr.endsWith('Seq')) {
       inferredDomain = '번호';
-    } else if (attributeName.endsWith('일시') || attributeName.endsWith('시간') || attributeName.endsWith('시각')) {
+    } else if (attrStr.endsWith('일시') || attrStr.endsWith('시간') || attrStr.endsWith('시각')) {
       inferredDomain = '일시';
-    } else if (attributeName.endsWith('코드') || attributeName.endsWith('구분코드')) {
+    } else if (attrStr.endsWith('코드') || attrStr.endsWith('구분코드')) {
       inferredDomain = '코드';
-    } else if (attributeName.endsWith('여부')) {
+    } else if (attrStr.endsWith('여부')) {
       inferredDomain = '여부';
-    } else if (attributeName.endsWith('이름') || attributeName.endsWith('명')) {
+    } else if (attrStr.endsWith('이름') || attrStr.endsWith('명')) {
       inferredDomain = '이름';
-    } else if (attributeName.endsWith('내용') || attributeName.endsWith('설명') || attributeName.endsWith('비고')) {
+    } else if (attrStr.endsWith('내용') || attrStr.endsWith('설명') || attrStr.endsWith('비고')) {
       inferredDomain = '내용';
-    } else if (attributeName.endsWith('일자') || attributeName.endsWith('날짜')) {
+    } else if (attrStr.endsWith('일자') || attrStr.endsWith('날짜')) {
       inferredDomain = '일자';
     } else if (attributeName.endsWith('금액') || attributeName.endsWith('값') || attributeName.endsWith('수량')) {
       inferredDomain = '금액';

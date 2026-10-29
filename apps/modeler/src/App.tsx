@@ -1,13 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import {
-  ReactFlow,
-  Background,
-  Controls,
-  MiniMap,
-  useNodesState,
-  useEdgesState,
-  Panel,
-} from '@xyflow/react';
+import KonvaModelerCanvas from './components/KonvaModelerCanvas.js';
 import Editor from '@monaco-editor/react';
 import { 
   Upload, 
@@ -48,22 +40,17 @@ import type {
 } from '@barker-modeler/model-core';
 
 import { DEFAULT_MODEL_YAML } from './defaultModel.js';
-import CustomEntityNode from './components/CustomEntityNode.js';
-import CustomGroupNode from './components/CustomGroupNode.js';
-import CustomSubtypeSetNode from './components/CustomSubtypeSetNode.js';
-import CustomBarkerEdge from './components/CustomBarkerEdge.js';
+
 import DictionaryManager from './components/DictionaryManager.js';
 import PhysicalTransformWizard from './components/PhysicalTransformWizard.js';
+import { parse as yamlParse } from 'yaml';
+import { 
+  getDictionary, 
+  translateLogicalName, 
+  resolveDataType 
+} from './services/dictionaryStorage.js';
 
-const nodeTypes = {
-  entityNode: CustomEntityNode,
-  supertypeGroup: CustomGroupNode,
-  subtypeSetGroup: CustomSubtypeSetNode,
-};
 
-const edgeTypes = {
-  barkerEdge: CustomBarkerEdge,
-};
 
 // Default layout offsets and sizes
 const NODE_WIDTH = 250;
@@ -77,7 +64,7 @@ export default function App() {
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
   const [selectedEntityName, setSelectedEntityName] = useState<string | null>(null);
   const [selectedRelationshipId, setSelectedRelationshipId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'canvas' | 'split'>('split');
+  const [activeTab, setActiveTab] = useState<'canvas' | 'split'>('canvas');
   const [isDdlModalOpen, setIsDdlModalOpen] = useState(false);
   const [ddlImportText, setDdlImportText] = useState('');
   const [layoutTrigger, setLayoutTrigger] = useState(0);
@@ -90,6 +77,7 @@ export default function App() {
   const [refineTargetFile, setRefineTargetFile] = useState<string>('');
   const [isDictOpen, setIsDictOpen] = useState(false);
   const [isTransformOpen, setIsTransformOpen] = useState(false);
+  const [viewMode, setViewMode] = useState<'logical' | 'physical'>('logical');
 
   // Undo/Redo history state
   const [historyState, setHistoryState] = useState<{
@@ -128,9 +116,32 @@ export default function App() {
     });
   }, []);
 
-  // React Flow state
-  const [nodes, setNodes, onNodesChange] = useNodesState<any>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<any>([]);
+  // Konva Canvas state
+  const [nodes, setNodes] = useState<any[]>([]);
+  const [edges, setEdges] = useState<any[]>([]);
+
+  const onNodesChange = useCallback((changes: any[]) => {
+    setNodes((nds) => {
+      let updated = [...nds];
+      changes.forEach((change) => {
+        if (change.type === 'position') {
+          updated = updated.map((node) =>
+            node.id === change.id
+              ? { ...node, position: { ...node.position, ...change.position } }
+              : node
+          );
+        } else if (change.type === 'dimensions') {
+          updated = updated.map((node) =>
+            node.id === change.id
+              ? { ...node, width: change.dimensions.width, height: change.dimensions.height }
+              : node
+          );
+        }
+      });
+      return updated;
+    });
+  }, []);
+
 
   const nodesRef = useRef<any>([]);
   useEffect(() => {
@@ -156,6 +167,71 @@ export default function App() {
   const projectFiles = useMemo(() => {
     return activeProject ? activeProject.files : [];
   }, [activeProject]);
+
+  const getFileDisplayName = (file: any) => {
+    if (!file) return '';
+    const filename = file.name;
+    
+    if (filename === 'standardization/dictionary.yaml') {
+      return '표준 단어/용어 사전';
+    }
+    if (filename === 'standardization/domains.yaml') {
+      return '표준 도메인 정의서';
+    }
+    if (filename === 'dbproject.yaml') {
+      return '프로젝트 환경 설정';
+    }
+
+    if (filename.endsWith('.sql') || filename.endsWith('.ddl')) {
+      const base = filename.split('/').pop() || filename;
+      return `SQL DDL 추출 사양서 (${base})`;
+    }
+
+    if (filename.endsWith('.yaml') || filename.endsWith('.yml')) {
+      try {
+        const subjectAreaMatch = file.content.match(/subject_area\s*:\s*['"]?([^'"\n\r]+)['"]?/);
+        if (subjectAreaMatch && subjectAreaMatch[1]) {
+          return subjectAreaMatch[1].trim();
+        }
+        const subjectMatch = file.content.match(/subject\s*:\s*['"]?([^'"\n\r]+)['"]?/);
+        if (subjectMatch && subjectMatch[1]) {
+          return subjectMatch[1].trim();
+        }
+      } catch {}
+    }
+
+    return filename.split('/').pop() || filename;
+  };
+
+  const getFolderDisplayName = (folder: string) => {
+    const mapping: Record<string, string> = {
+      conceptual: '개념 모델링 (Conceptual)',
+      logical: '논리 모델링 / 주제 영역 (Logical)',
+      physical: '물리 테이블 사양 / DDL (Physical)',
+      standardization: '데이터 표준화 정의 (Standardization)',
+    };
+    return mapping[folder.toLowerCase()] || folder;
+  };
+
+  const groupedFiles = useMemo(() => {
+    const groups: Record<string, any[]> = {};
+    const rootFiles: any[] = [];
+
+    projectFiles.forEach((file: any) => {
+      if (file.name.includes('/')) {
+        const parts = file.name.split('/');
+        const folder = parts[0];
+        if (!groups[folder]) {
+          groups[folder] = [];
+        }
+        groups[folder].push(file);
+      } else {
+        rootFiles.push(file);
+      }
+    });
+
+    return { groups, rootFiles };
+  }, [projectFiles]);
 
   const isActiveFileSql = useMemo(() => {
     return activeFileName ? (activeFileName.endsWith('.sql') || activeFileName.endsWith('.ddl')) : false;
@@ -184,6 +260,7 @@ export default function App() {
       isUndoRedoAction.current = true; // Prevent pushing loaded content as new history state
       setYamlText(fileObj.content);
       initHistory(fileObj.content, fileObj.layout);
+      setViewMode('logical');
 
       if (activeFileName.endsWith('.yaml') || activeFileName.endsWith('.yml')) {
         try {
@@ -735,6 +812,56 @@ relationships: []
       }
     });
 
+    // Parse project dictionary and target DB config for physical rendering
+    const dictionaryFile = projectFiles.find(f => f.name === 'standardization/dictionary.yaml');
+    const domainsFile = projectFiles.find(f => f.name === 'standardization/domains.yaml');
+    let activeDict = getDictionary();
+    if (dictionaryFile || domainsFile) {
+      try {
+        const dictYaml = dictionaryFile ? (yamlParse(dictionaryFile.content) as any) || {} : {};
+        const domainsYaml = domainsFile ? (yamlParse(domainsFile.content) as any) || {} : {};
+        
+        const words = Array.isArray(dictYaml.words) 
+          ? dictYaml.words.map((w: any) => ({
+              logicalName: w.logicalName || w.logical || '',
+              physicalAbbr: w.physicalAbbr || w.physical || ''
+            }))
+          : [];
+
+        const terms = Array.isArray(dictYaml.terms)
+          ? dictYaml.terms.map((t: any) => ({
+              logicalName: t.logicalName || t.logical || '',
+              physicalName: t.physicalName || t.physical || ''
+            }))
+          : [];
+
+        const domains = Array.isArray(domainsYaml.domains)
+          ? domainsYaml.domains.map((d: any) => ({
+              logicalName: d.logicalName || d.logical || d.name || '',
+              physicalName: d.physicalName || d.physical || d.type || ''
+            }))
+          : [];
+
+        activeDict = {
+          domains,
+          words,
+          terms,
+          codes: dictYaml.codes || []
+        };
+      } catch {}
+    }
+
+    const configFile = projectFiles.find(f => f.name === 'dbproject.yaml');
+    let dbType: 'ORACLE' | 'POSTGRES' | 'MYSQL' = 'ORACLE';
+    if (configFile) {
+      try {
+        const configYaml = yamlParse(configFile.content) || {};
+        const target = String(configYaml.target_db || '').toUpperCase();
+        if (target.includes('POSTGRES')) dbType = 'POSTGRES';
+        else if (target.includes('MYSQL')) dbType = 'MYSQL';
+      } catch {}
+    }
+
     // Map parent to children subtypes (only for active ones, as external ones are root in this context)
     const parentToChildren = new Map<string, string[]>();
     model.entities.forEach(ent => {
@@ -757,22 +884,33 @@ relationships: []
     const activeFile = projectFiles.find((f: any) => f.name === activeFileName);
     const savedLayout = activeFile?.layout || {};
 
-    // Map existing positions to preserve them if not resetting
-    const existingPositions = new Map<string, { x: number; y: number }>();
+    // Map existing positions & sizes to preserve them if not resetting
+    const existingPositions = new Map<string, { x: number; y: number; width?: number; height?: number }>();
     const isReset = lastProcessedLayoutTrigger.current !== layoutTrigger;
     
     if (isReset) {
       lastProcessedLayoutTrigger.current = layoutTrigger;
       // Do not load any existing or saved positions, recalculate fresh!
     } else {
-      // 1. Populate from viewport positions
-      nodesRef.current.forEach((n: any) => {
-        existingPositions.set(n.id, n.position);
-      });
-      // 2. Fallback to saved positions from the file
+      // 1. Populate from saved positions from the file (Priority 1)
       Object.keys(savedLayout).forEach(id => {
-        if (!existingPositions.has(id)) {
-          existingPositions.set(id, savedLayout[id]);
+        const item = savedLayout[id] as any;
+        if (item && typeof item.x === 'number' && !isNaN(item.x) && typeof item.y === 'number' && !isNaN(item.y)) {
+          const validated: any = { x: item.x, y: item.y };
+          if (typeof item.width === 'number' && !isNaN(item.width)) validated.width = item.width;
+          if (typeof item.height === 'number' && !isNaN(item.height)) validated.height = item.height;
+          existingPositions.set(id, validated);
+        }
+      });
+      // 2. Populate from viewport positions (Priority 2)
+      nodesRef.current.forEach((n: any) => {
+        if (!existingPositions.has(n.id) && n?.position) {
+          existingPositions.set(n.id, {
+            x: n.position.x ?? 0,
+            y: n.position.y ?? 0,
+            width: n.width,
+            height: n.height
+          });
         }
       });
     }
@@ -806,7 +944,24 @@ relationships: []
       const ent = entityMap.get(name);
       if (!ent) return;
 
-      const layout = layouts.get(name) || { width: NODE_WIDTH, height: 100, localX: PADDING, localY: 0 };
+      const layout = { ...(layouts.get(name) || { width: NODE_WIDTH, height: 100, localX: PADDING, localY: 0 }) };
+      
+      // Calculate absolute positions for 2D Canvas rendering
+      let absoluteX = globalX;
+      let absoluteY = globalY;
+      if (parentId) {
+        absoluteX = globalX + (layout.localX ?? PADDING);
+        absoluteY = globalY + (layout.localY ?? 0);
+      }
+
+      if (existingPositions.has(name)) {
+        const cached = existingPositions.get(name)!;
+        if (cached.width) layout.width = cached.width;
+        if (cached.height) layout.height = cached.height;
+        if (cached.x !== undefined && !isNaN(cached.x)) absoluteX = cached.x;
+        if (cached.y !== undefined && !isNaN(cached.y)) absoluteY = cached.y;
+      }
+
       const children = parentToChildren.get(name) || [];
       const isExternal = !activeNames.has(name);
 
@@ -826,21 +981,84 @@ relationships: []
         }
       }
 
+      // Convert logical names to physical specifications if in physical viewMode
+      let displayName = name;
+      let displayType = ent.type;
+      let displayAttributes = filteredAttributes;
+      let shortName = '';
+
+      if (viewMode === 'physical') {
+        const rawPhysicalName = translateLogicalName(name, activeDict, 'UPPER').physicalName;
+        const segments = rawPhysicalName.split('_');
+        if (segments.length > 0) {
+          const lastIndex = segments.length - 1;
+          const lastWord = segments[lastIndex];
+          
+          let pluralLastWord = lastWord;
+          if (lastWord !== 'HIST' && lastWord !== 'STATUS' && lastWord !== 'CONTENT' && lastWord !== 'AUDIT') {
+            if (lastWord.endsWith('Y')) {
+              pluralLastWord = lastWord.substring(0, lastWord.length - 1) + 'IES';
+            } else if (lastWord.endsWith('S') || lastWord.endsWith('CH') || lastWord.endsWith('SH') || lastWord.endsWith('X') || lastWord.endsWith('Z')) {
+              pluralLastWord = lastWord + 'ES';
+            } else {
+              pluralLastWord = lastWord + 'S';
+            }
+          }
+          segments[lastIndex] = pluralLastWord;
+        }
+        
+        const pTable = `TB_${segments.join('_')}`;
+        displayName = pTable;
+        displayType = 'entity';
+        
+        if (segments.length >= 2) {
+          const f = segments[0][0] || '';
+          const s = segments[1][0] || '';
+          const l = segments[segments.length - 1][segments[segments.length - 1].length - 1] || '';
+          shortName = (f + s + l).toUpperCase();
+        } else if (segments.length === 1) {
+          const word = segments[0];
+          if (word.length <= 3) {
+            shortName = word.toUpperCase();
+          } else {
+            const f = word[0] || '';
+            const s = word[1] || '';
+            const l = word[word.length - 1] || '';
+            shortName = (f + s + l).toUpperCase();
+          }
+        }
+
+        displayAttributes = filteredAttributes.map(attr => {
+          const pCol = translateLogicalName(attr.name, activeDict, 'UPPER').physicalName;
+          const pType = resolveDataType(attr.domain, attr.name, dbType, activeDict);
+          return {
+            ...attr,
+            name: pCol,
+            domain: pType,
+            fk: attr.fk || (attr as any).foreign_key || false
+          };
+        });
+      }
+
       // If it is a supertype, we render it directly as a Group Node container containing attributes
       if (sets.length > 0) {
         rfNodes.push({
           id: name,
           parentId: parentId || undefined,
           type: 'supertypeGroup',
-          position: parentId 
-            ? { x: layout.localX ?? PADDING, y: layout.localY } 
-            : { x: globalX, y: globalY },
+          position: { x: absoluteX, y: absoluteY },
+          width: layout.width,
+          height: layout.height,
           style: { width: layout.width, height: layout.height },
           data: {
             ...ent,
-            label: name,
-            attributes: filteredAttributes,
+            label: displayName,
+            name: displayName,
+            type: displayType,
+            attributes: displayAttributes,
             isExternal,
+            isPhysical: viewMode === 'physical',
+            shortName,
             onAttributeClick: (_attr: Attribute) => {
               setSelectedEntityName(name);
             },
@@ -854,20 +1072,24 @@ relationships: []
         sets.forEach(set => {
           const setId = `set-${name}-${set.name}`;
           const setLayout = layouts.get(setId) || { width: NODE_WIDTH, height: 100, localX: PADDING, localY: 100 };
+          const setAbsoluteX = absoluteX + (setLayout.localX ?? PADDING);
+          const setAbsoluteY = absoluteY + (setLayout.localY ?? 100);
 
           // 1. Add Subtype Set Box
           rfNodes.push({
             id: setId,
-            parentId: name, // parent is the Supertype Node
+            parentId: name,
             type: 'subtypeSetGroup',
-            position: { x: setLayout.localX ?? PADDING, y: setLayout.localY },
+            position: { x: setAbsoluteX, y: setAbsoluteY },
+            width: setLayout.width,
+            height: setLayout.height,
             style: { width: setLayout.width, height: setLayout.height },
             data: { label: set.name },
           });
 
           // 2. Add child Subtypes inside the Subtype Set Box recursively
           set.subtypes.forEach(subName => {
-            buildNodes(subName, setId, 0, 0); // parent is the Subtype Set Node
+            buildNodes(subName, setId, setAbsoluteX, setAbsoluteY);
           });
         });
 
@@ -877,14 +1099,19 @@ relationships: []
           id: name,
           parentId: parentId || undefined,
           type: 'entityNode',
-          position: parentId 
-            ? { x: layout.localX ?? PADDING, y: layout.localY } 
-            : { x: globalX, y: globalY },
-          style: { width: NODE_WIDTH },
+          position: { x: absoluteX, y: absoluteY },
+          width: layout.width || NODE_WIDTH,
+          height: layout.height || 120,
+          style: { width: layout.width || NODE_WIDTH, height: layout.height || 120 },
           data: {
             ...ent,
-            attributes: filteredAttributes,
+            label: displayName,
+            name: displayName,
+            type: displayType,
+            attributes: displayAttributes,
             isExternal,
+            isPhysical: viewMode === 'physical',
+            shortName,
             onAttributeClick: (_attr: Attribute) => {
               setSelectedEntityName(name);
             },
@@ -896,42 +1123,95 @@ relationships: []
       }
     }
 
-    // Row-based wrapping layout for roots (collision-free & responsive to wide supertypes)
-    let currentX = 50;
-    let currentY = 50;
-    let currentRowHeight = 0;
-    const MAX_CANVAS_WIDTH = 1350; // Wrap coordinates when exceeding this width
-
-    roots.forEach((root) => {
-      const layout = layouts.get(root) || { width: NODE_WIDTH + PADDING * 2, height: 200 };
-
-      let x = 0;
-      let y = 0;
-
-      if (existingPositions.has(root)) {
-        const pos = existingPositions.get(root)!;
-        x = pos.x;
-        y = pos.y;
-      } else {
-        // If node width causes it to overflow row width, wrap to a new row
-        if (currentX + layout.width > MAX_CANVAS_WIDTH && currentX > 50) {
-          currentX = 50;
-          currentY += currentRowHeight + 100; // 100px vertical gap
-          currentRowHeight = 0;
-        }
-
-        x = currentX;
-        y = currentY;
-
-        // Advance horizontal position
-        currentX += layout.width + 100; // 100px horizontal gap
-        if (layout.height > currentRowHeight) {
-          currentRowHeight = layout.height;
+    // Topological Layering Layout for global roots (parents on top, children below)
+    const rootEdges: [string, string][] = [];
+    
+    const getRootAncestor = (name: string): string => {
+      let current = name;
+      let safety = 0;
+      while (safety < 20) {
+        const ent = entityMap.get(current);
+        if (ent && ent.supertype && entityMap.has(ent.supertype)) {
+          current = ent.supertype;
+          safety++;
+        } else {
+          break;
         }
       }
+      return current;
+    };
 
-      buildNodes(root, null, x, y);
+    model.relationships.forEach(rel => {
+      const parentRoot = getRootAncestor(rel.parent);
+      const childRoot = getRootAncestor(rel.child);
+      if (parentRoot !== childRoot && roots.includes(parentRoot) && roots.includes(childRoot)) {
+        rootEdges.push([parentRoot, childRoot]);
+      }
     });
+
+    const ranks = new Map<string, number>();
+    roots.forEach(r => ranks.set(r, 0));
+    
+    // Relax ranks to establish vertical hierarchy layer indexes
+    for (let i = 0; i < roots.length; i++) {
+      let changed = false;
+      rootEdges.forEach(([u, v]) => {
+        const rankU = ranks.get(u) || 0;
+        const rankV = ranks.get(v) || 0;
+        if (rankU + 1 > rankV) {
+          ranks.set(v, rankU + 1);
+          changed = true;
+        }
+      });
+      if (!changed) break;
+    }
+
+    const rootsByRank = new Map<number, string[]>();
+    roots.forEach(root => {
+      const r = ranks.get(root) || 0;
+      const list = rootsByRank.get(r) || [];
+      list.push(root);
+      rootsByRank.set(r, list);
+    });
+
+    const maxRank = Math.max(...Array.from(rootsByRank.keys()), 0);
+    let layerY = 50;
+
+    for (let r = 0; r <= maxRank; r++) {
+      const rootsInRank = rootsByRank.get(r) || [];
+      if (rootsInRank.length === 0) continue;
+
+      let layerX = 50;
+      let maxLayerHeight = 0;
+
+      rootsInRank.forEach(root => {
+        const layout = layouts.get(root) || { width: NODE_WIDTH + PADDING * 2, height: 200 };
+        
+        let x = 0;
+        let y = 0;
+
+        if (existingPositions.has(root)) {
+          const pos = existingPositions.get(root)!;
+          x = pos.x;
+          y = pos.y;
+        } else {
+          x = layerX;
+          y = layerY;
+          layerX += layout.width + 180; // horizontal gap
+        }
+
+        if (layout.height > maxLayerHeight) {
+          maxLayerHeight = layout.height;
+        }
+
+        buildNodes(root, null, x, y);
+      });
+
+      const hasAnyExisting = rootsInRank.some(root => existingPositions.has(root));
+      if (!hasAnyExisting) {
+        layerY += maxLayerHeight + 180; // vertical gap between layers
+      }
+    }
 
     // Populate Edges
     model.relationships.forEach(rel => {
@@ -945,14 +1225,22 @@ relationships: []
       });
     });
 
+    console.log("🔴 [App] Setting nodes and edges. Active File:", activeFileName, "Nodes:", rfNodes.length, "Edges:", rfEdges.length, "isReset:", isReset);
+
     setNodes(rfNodes);
     setEdges(rfEdges);
 
     // Save calculated coordinates on Auto Layout (Reset) so they are preserved
     if (isReset && activeProjectId && activeFileName && rfNodes.length > 0) {
-      const layoutMap: Record<string, { x: number; y: number }> = {};
+      console.log("🔴 [App] Auto Layout coordinates auto-saved in state.");
+      const layoutMap: Record<string, { x: number; y: number; width?: number; height?: number }> = {};
       rfNodes.forEach((n: any) => {
-        layoutMap[n.id] = { x: n.position.x, y: n.position.y };
+        layoutMap[n.id] = { 
+          x: n.position.x, 
+          y: n.position.y,
+          width: n.width,
+          height: n.height
+        };
       });
 
       setProjects(prevProjects => {
@@ -974,16 +1262,21 @@ relationships: []
 
       pushHistory(yamlText, layoutMap);
     }
-  }, [model, selectedRelationshipId, computeHierarchyLayouts, setNodes, setEdges, layoutTrigger, allProjectEntities, activeProjectId, activeFileName, yamlText, pushHistory]);
+  }, [model, selectedRelationshipId, computeHierarchyLayouts, setNodes, setEdges, layoutTrigger, allProjectEntities, activeProjectId, activeFileName, yamlText, pushHistory, viewMode, projectFiles]);
 
-  // Sync node dragging position back to project files in localStorage and track history
+  // Sync node dragging position and size back to project files in localStorage and track history
   const onNodeDragStop = useCallback((_event: any, _node: any, latestNodes: any[]) => {
     if (!activeProjectId || !activeFileName) return;
 
-    // Gather coordinates of all nodes from latest nodes array passed by React Flow
-    const layoutMap: Record<string, { x: number; y: number }> = {};
+    // Gather coordinates and dimensions of all nodes
+    const layoutMap: Record<string, { x: number; y: number; width?: number; height?: number }> = {};
     latestNodes.forEach((n: any) => {
-      layoutMap[n.id] = { x: n.position.x, y: n.position.y };
+      layoutMap[n.id] = { 
+        x: n.position.x, 
+        y: n.position.y,
+        width: n.width,
+        height: n.height
+      };
     });
 
     setProjects(prevProjects => {
@@ -1033,26 +1326,56 @@ relationships: []
     setYamlText(content);
   }, [activeProjectId]);
 
+  const handleUpdateProjectFile = useCallback((filename: string, content: string) => {
+    if (!activeProjectId) return;
+    
+    setProjects(prevProjects => {
+      const updated = prevProjects.map(proj => {
+        if (proj.id === activeProjectId) {
+          const exists = proj.files.some((f: any) => f.name === filename);
+          let filesUpdated;
+          if (exists) {
+            filesUpdated = proj.files.map((f: any) => f.name === filename ? { ...f, content } : f);
+          } else {
+            filesUpdated = [...proj.files, { name: filename, content }];
+          }
+          return { ...proj, files: filesUpdated };
+        }
+        return proj;
+      });
+      saveProjects(updated);
+      return updated;
+    });
+  }, [activeProjectId]);
+
   // Double click handler for nodes: switches files for external entities or jumps from conceptual to detailed logical models
   const onNodeDoubleClick = useCallback((_event: any, node: any) => {
     const entityName = node.id.replace('group-', '');
     
-    // Search other files in the project first for a matching entity name or subject area
-    const otherFiles = projectFiles.filter((f: any) => f.name !== activeFileName);
-    const definingFile = otherFiles.find((f: any) => {
-      try {
-        const parsed = parseModel(f.content);
-        const matchesSubjectArea = parsed.subject_area && parsed.subject_area.toLowerCase().replace(/\s+/g, '').includes(entityName.toLowerCase().replace(/\s+/g, ''));
-        const hasEntity = parsed.entities.some(e => e.name === entityName);
-        const isNotConceptual = !f.name.includes('conceptual') && (parsed as any).modeling_level !== 'conceptual' && parsed.subject_area !== 'QVI 개념 모델';
-        return (matchesSubjectArea || hasEntity) && isNotConceptual;
-      } catch {
-        return false;
+    // 1. If currently in conceptual model, drill down to logical model
+    if (activeFileName?.includes('conceptual')) {
+      const otherFiles = projectFiles.filter((f: any) => f.name !== activeFileName);
+      const definingFile = otherFiles.find((f: any) => {
+        try {
+          const parsed = parseModel(f.content);
+          const matchesSubjectArea = parsed.subject_area && parsed.subject_area.toLowerCase().replace(/\s+/g, '').includes(entityName.toLowerCase().replace(/\s+/g, ''));
+          const hasEntity = parsed.entities.some(e => e.name === entityName);
+          const isNotConceptual = !f.name.includes('conceptual') && (parsed as any).modeling_level !== 'conceptual' && parsed.subject_area !== 'QVI 개념 모델';
+          return (matchesSubjectArea || hasEntity) && isNotConceptual;
+        } catch {
+          return false;
+        }
+      });
+      
+      if (definingFile) {
+        handleSelectFile(definingFile.name);
+        setSelectedEntityName(entityName);
+        return;
       }
-    });
-    
-    if (definingFile) {
-      handleSelectFile(definingFile.name);
+    }
+    // 2. If currently in logical model, drill down to physical (switch viewMode to physical)
+    else if (activeFileName?.includes('logical')) {
+      setViewMode('physical');
       setSelectedEntityName(entityName);
       return;
     }
@@ -1061,6 +1384,24 @@ relationships: []
     setSelectedEntityName(entityName);
     setSelectedRelationshipId(null);
   }, [projectFiles, activeFileName, handleSelectFile]);
+
+  const onPaneDoubleClick = useCallback((event: any) => {
+    const target = event.target as HTMLElement;
+    const isPane = target && (target.classList.contains('react-flow__pane') || target.closest('.react-flow__pane'));
+    
+    if (isPane && activeFileName?.includes('logical')) {
+      if (viewMode === 'physical') {
+        // If in physical mode, double-clicking pane goes back to logical
+        setViewMode('logical');
+      } else {
+        // If in logical mode, double-clicking pane goes up to conceptual
+        const conceptualFile = projectFiles.find((f: any) => f.name.includes('conceptual'));
+        if (conceptualFile) {
+          handleSelectFile(conceptualFile.name);
+        }
+      }
+    }
+  }, [activeFileName, projectFiles, handleSelectFile, viewMode]);
 
   // Selection handlers
   const onSelectionChange = useCallback(({ nodes: selectedNodes, edges: selectedEdges }: any) => {
@@ -1340,6 +1681,19 @@ relationships: []
     return (model as any).modeling_level === 'conceptual' || activeFileName?.includes('conceptual') || model.subject_area?.includes('개념');
   }, [model, activeFileName]);
 
+  const refinementFile = useMemo(() => {
+    if (!isConceptual || !selectedEntityName) return null;
+    return projectFiles.find((f: any) => {
+      if (!f.name.startsWith('logical/') || !f.name.endsWith('.yaml')) return false;
+      try {
+        const parsed = parseModel(f.content);
+        return (parsed.entities || []).some(e => e.name === selectedEntityName);
+      } catch {
+        return false;
+      }
+    });
+  }, [isConceptual, selectedEntityName, projectFiles]);
+
   // Lookup selected relationship data
   const selectedRelationship = useMemo(() => {
     return model.relationships.find(r => r.id === selectedRelationshipId) || null;
@@ -1540,15 +1894,38 @@ relationships: []
             <BookOpen size={16} /> 표준화 사전
           </button>
 
-          {activeFileName && (activeFileName.endsWith('.yaml') || activeFileName.endsWith('.yml')) && (
-            <button 
-              className="btn btn-secondary" 
-              title="상세논리모델을 물리 테이블 모델 및 DDL로 전환"
-              onClick={() => setIsTransformOpen(true)}
-              style={{ border: '1px solid var(--accent-color)', color: 'var(--accent-color)' }}
-            >
-              <Database size={16} /> 물리 전환
-            </button>
+          {activeFileName && activeFileName.startsWith('logical/') && (
+            <>
+              {viewMode === 'logical' ? (
+                <button 
+                  className="btn btn-secondary" 
+                  title="다이어그램을 물리 모델(테이블/컬럼)로 전환"
+                  onClick={() => setViewMode('physical')}
+                  style={{ border: '1px solid var(--accent-color)', color: 'var(--accent-color)', fontWeight: 'bold' }}
+                >
+                  <Database size={16} /> 물리 전환
+                </button>
+              ) : (
+                <>
+                  <button 
+                    className="btn btn-secondary" 
+                    title="다이어그램을 원래 논리 모델(엔터티/속성)로 복구"
+                    onClick={() => setViewMode('logical')}
+                    style={{ border: '1px solid var(--border-color)', color: 'var(--text-muted)' }}
+                  >
+                    <RefreshCw size={16} /> 논리 전환
+                  </button>
+                  <button 
+                    className="btn btn-secondary" 
+                    title="물리 테이블 설계 사양서 및 DDL 생성 마법사 열기"
+                    onClick={() => setIsTransformOpen(true)}
+                    style={{ border: '1px solid var(--accent-color)', color: 'var(--accent-color)', fontWeight: 'bold' }}
+                  >
+                    <FileCode size={16} /> DDL/물리사양 추출
+                  </button>
+                </>
+              )}
+            </>
           )}
 
           <button className="btn btn-primary" onClick={handleExportYaml}>
@@ -1615,54 +1992,130 @@ relationships: []
                 </button>
               </div>
             </h3>
-            
-            <div className="entity-list" style={{ maxHeight: '200px' }}>
-              {projectFiles.map((file: any) => (
-                <div 
-                  key={file.name} 
-                  className="entity-list-item"
-                  onClick={() => handleSelectFile(file.name)}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    borderColor: activeFileName === file.name ? 'var(--accent-color)' : undefined,
-                    backgroundColor: activeFileName === file.name ? 'rgba(59, 130, 246, 0.05)' : undefined,
-                    fontWeight: activeFileName === file.name ? 'bold' : 'normal',
-                    paddingRight: '6px'
-                  }}
-                >
-                  <span style={{ fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                    {file.name.endsWith('.sql') || file.name.endsWith('.ddl') ? '📜' : '📄'} {file.name}
-                  </span>
-                  
-                  {/* File actions */}
-                  <div className="file-actions" style={{ display: 'flex', gap: '2px' }}>
-                    <button
-                      className="btn btn-icon"
-                      style={{ padding: '2px', border: 'none', background: 'transparent' }}
-                      title="Rename File"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRenameFile(file.name);
-                      }}
-                    >
-                      <Edit2 size={10} style={{ color: 'var(--text-muted)' }} />
-                    </button>
-                    <button
-                      className="btn btn-icon"
-                      style={{ padding: '2px', border: 'none', background: 'transparent' }}
-                      title="Delete File"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteFile(file.name);
-                      }}
-                    >
-                      <Trash2 size={10} style={{ color: 'var(--danger)' }} />
-                    </button>
+            <div className="entity-list" style={{ maxHeight: '250px', overflowY: 'auto' }}>
+              {/* Render Groups (Folders) */}
+              {Object.entries(groupedFiles.groups).map(([folderName, files]) => (
+                <div key={folderName} style={{ marginBottom: '8px' }}>
+                  <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '6px', 
+                    padding: '4px 6px', 
+                    fontWeight: 'bold', 
+                    fontSize: '0.75rem', 
+                    color: 'var(--text-muted)',
+                    backgroundColor: 'rgba(0, 0, 0, 0.02)',
+                    borderRadius: '4px'
+                  }}>
+                    📂 <span>{getFolderDisplayName(folderName)}</span>
+                  </div>
+                  <div style={{ paddingLeft: '12px' }}>
+                    {files.map((file: any) => (
+                      <div 
+                        key={file.name} 
+                        className="entity-list-item"
+                        onClick={() => handleSelectFile(file.name)}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          borderColor: activeFileName === file.name ? 'var(--accent-color)' : 'transparent',
+                          backgroundColor: activeFileName === file.name ? 'rgba(59, 130, 246, 0.05)' : undefined,
+                          fontWeight: activeFileName === file.name ? 'bold' : 'normal',
+                          padding: '4px 6px',
+                          margin: '2px 0',
+                          borderRadius: '4px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <span style={{ fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                          {file.name.endsWith('.sql') || file.name.endsWith('.ddl') ? '📜' : '📄'} {getFileDisplayName(file)}
+                        </span>
+                        
+                        {/* File actions */}
+                        <div className="file-actions" style={{ display: 'flex', gap: '2px' }}>
+                          <button
+                            className="btn btn-icon"
+                            style={{ padding: '2px', border: 'none', background: 'transparent' }}
+                            title="Rename File"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRenameFile(file.name);
+                            }}
+                          >
+                            <Edit2 size={10} style={{ color: 'var(--text-muted)' }} />
+                          </button>
+                          <button
+                            className="btn btn-icon"
+                            style={{ padding: '2px', border: 'none', background: 'transparent' }}
+                            title="Delete File"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteFile(file.name);
+                            }}
+                          >
+                            <Trash2 size={10} style={{ color: 'var(--danger)' }} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               ))}
+
+              {/* Render Root Files */}
+              {groupedFiles.rootFiles.length > 0 && (
+                <div style={{ marginTop: '8px' }}>
+                  {groupedFiles.rootFiles.map((file: any) => (
+                    <div 
+                      key={file.name} 
+                      className="entity-list-item"
+                      onClick={() => handleSelectFile(file.name)}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        borderColor: activeFileName === file.name ? 'var(--accent-color)' : 'transparent',
+                        backgroundColor: activeFileName === file.name ? 'rgba(59, 130, 246, 0.05)' : undefined,
+                        fontWeight: activeFileName === file.name ? 'bold' : 'normal',
+                        padding: '4px 6px',
+                        margin: '2px 0',
+                        borderRadius: '4px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <span style={{ fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                        {file.name.endsWith('.sql') || file.name.endsWith('.ddl') ? '📜' : '📄'} {getFileDisplayName(file)}
+                      </span>
+                      
+                      <div className="file-actions" style={{ display: 'flex', gap: '2px' }}>
+                        <button
+                          className="btn btn-icon"
+                          style={{ padding: '2px', border: 'none', background: 'transparent' }}
+                          title="Rename File"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRenameFile(file.name);
+                          }}
+                        >
+                          <Edit2 size={10} style={{ color: 'var(--text-muted)' }} />
+                        </button>
+                        <button
+                          className="btn btn-icon"
+                          style={{ padding: '2px', border: 'none', background: 'transparent' }}
+                          title="Delete File"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteFile(file.name);
+                          }}
+                        >
+                          <Trash2 size={10} style={{ color: 'var(--danger)' }} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -1792,30 +2245,76 @@ relationships: []
                 </button>
               </div>
             ) : (
-              <ReactFlow
-                nodes={nodes}
-                edges={edges}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                onNodeDragStop={onNodeDragStop}
-                onSelectionChange={onSelectionChange}
-                onNodeDoubleClick={onNodeDoubleClick}
-                nodeTypes={nodeTypes}
-                edgeTypes={edgeTypes}
-                fitView
-              >
-                <Background color="#cbd5e1" gap={20} size={1} />
-                <Controls />
-                <MiniMap 
-                  nodeStrokeColor={(n) => n.type === 'supertypeGroup' ? '#cbd5e1' : '#94a3b8'}
-                  nodeColor={(n) => n.type === 'supertypeGroup' ? 'rgba(241, 245, 249, 0.4)' : '#ffffff'}
-                  style={{ backgroundColor: 'var(--bg-sidebar)' }} 
+              <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+                <KonvaModelerCanvas
+                  nodes={nodes}
+                  edges={edges}
+                  onNodesChange={onNodesChange}
+                  onNodeDragStop={onNodeDragStop}
+                  onSelectionChange={onSelectionChange}
+                  onNodeDoubleClick={onNodeDoubleClick}
+                  onPaneDoubleClick={onPaneDoubleClick}
+                  selectedEntityName={selectedEntityName}
+                  selectedRelationshipId={selectedRelationshipId}
+                  viewMode={viewMode}
                 />
                 
-                <Panel position="bottom-left" style={{ background: 'var(--bg-sidebar)', padding: '6px 12px', borderRadius: '6px', fontSize: '0.75rem', color: 'var(--text-muted)', border: '1px solid var(--border-color)' }}>
+                <div style={{ position: 'absolute', bottom: '16px', left: '16px', zIndex: 10, background: 'var(--bg-sidebar)', padding: '6px 12px', borderRadius: '6px', fontSize: '0.75rem', color: 'var(--text-muted)', border: '1px solid var(--border-color)' }}>
                   <strong>Barker Notation Guide:</strong> Dotted line = Non-Identifying/Optional. Solid = Identifying/Mandatory. Crow's foot = Many.
-                </Panel>
-              </ReactFlow>
+                </div>
+
+                {/* Drill Up Floating Panel */}
+                {activeFileName?.includes('logical') && projectFiles.some((f: any) => f.name.includes('conceptual')) && (
+                  <div style={{ position: 'absolute', top: '16px', right: '16px', zIndex: 10 }}>
+                    <button 
+                      className="btn btn-secondary"
+                      style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '6px', 
+                        fontSize: '0.8rem', 
+                        padding: '6px 12px', 
+                        background: 'var(--bg-main)', 
+                        border: '1px solid var(--border-color)', 
+                        borderRadius: '4px', 
+                        cursor: 'pointer', 
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                        fontWeight: 'bold',
+                        color: 'var(--accent-color)'
+                      }}
+                      onClick={() => {
+                        const conceptualFile = projectFiles.find((f: any) => f.name.includes('conceptual'));
+                        if (conceptualFile) {
+                          handleSelectFile(conceptualFile.name);
+                        }
+                      }}
+                    >
+                      ⬆️ Drill Up (개념 모델로)
+                    </button>
+                  </div>
+                )}
+
+                {/* Conceptual Model Indicator Badge */}
+                {isConceptual && (
+                  <div style={{ position: 'absolute', top: '16px', right: '16px', zIndex: 10 }}>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontSize: '0.8rem',
+                      padding: '6px 12px',
+                      background: 'rgba(234, 179, 8, 0.1)',
+                      border: '1px solid rgba(234, 179, 8, 0.3)',
+                      color: '#b45309',
+                      borderRadius: '4px',
+                      fontWeight: 'bold',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
+                    }}>
+                      💡 개념 모델링 단계 (Conceptual Stage)
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
@@ -1909,35 +2408,70 @@ relationships: []
 
               {/* Refinement Panel (Visible only in conceptual model) */}
               {isConceptual && (
-                <div className="form-group" style={{ marginTop: '16px', padding: '12px', backgroundColor: 'rgba(234, 179, 8, 0.08)', border: '1px solid rgba(234, 179, 8, 0.2)', borderRadius: '6px' }}>
-                  <label style={{ color: '#b45309', fontWeight: 'bold', display: 'block', marginBottom: '6px', fontSize: '0.8rem' }}>
-                    상세 논리 모델로 상세화 (Refine)
-                  </label>
-                  <select
-                    className="form-control"
-                    style={{ marginBottom: '8px', fontSize: '0.75rem' }}
-                    value={refineTargetFile}
-                    onChange={(e) => setRefineTargetFile(e.target.value)}
-                  >
-                    <option value="">-- 대상 상세 모델 파일 선택 --</option>
-                    {projectFiles
-                      .filter((f: any) => f.name !== activeFileName && !f.name.includes('conceptual'))
-                      .map((f: any) => (
-                        <option key={f.name} value={f.name}>{f.name}</option>
-                      ))}
-                  </select>
-                  <button 
-                    className="btn btn-primary" 
-                    style={{ width: '100%', fontSize: '0.75rem', padding: '6px', backgroundColor: 'var(--accent-color)', borderColor: 'var(--accent-color)' }}
-                    disabled={!refineTargetFile}
-                    onClick={() => handleRefineEntity(selectedEntity.name, refineTargetFile)}
-                  >
-                    상세 모델로 상세화 진행
-                  </button>
-                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '4px', textAlign: 'center' }}>
-                    * 주요 속성(key_attributes)이 상세 모델의 속성으로 자동 변환됩니다.
+                refinementFile ? (
+                  <div className="form-group" style={{ 
+                    marginTop: '16px', 
+                    padding: '12px', 
+                    backgroundColor: 'rgba(16, 185, 129, 0.08)', 
+                    border: '1px solid rgba(16, 185, 129, 0.2)', 
+                    borderRadius: '6px' 
+                  }}>
+                    <label style={{ color: 'var(--success)', fontWeight: 'bold', display: 'block', marginBottom: '6px', fontSize: '0.8rem' }}>
+                      🔗 상세 논리 모델 연결됨
+                    </label>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-main)', marginBottom: '8px' }}>
+                      이 엔터티는 <strong>{getFileDisplayName(refinementFile)}</strong> 주제 영역에 상세화되어 있습니다.
+                    </div>
+                    <button 
+                      className="btn" 
+                      style={{ 
+                        width: '100%', 
+                        fontSize: '0.75rem', 
+                        padding: '6px', 
+                        borderColor: 'var(--success)', 
+                        color: 'var(--success)',
+                        fontWeight: 'bold',
+                        background: 'transparent'
+                      }}
+                      onClick={() => {
+                        handleSelectFile(refinementFile.name);
+                        setSelectedEntityName(selectedEntity.name);
+                      }}
+                    >
+                      상세 논리 다이어그램으로 이동
+                    </button>
                   </div>
-                </div>
+                ) : (
+                  <div className="form-group" style={{ marginTop: '16px', padding: '12px', backgroundColor: 'rgba(234, 179, 8, 0.08)', border: '1px solid rgba(234, 179, 8, 0.2)', borderRadius: '6px' }}>
+                    <label style={{ color: '#b45309', fontWeight: 'bold', display: 'block', marginBottom: '6px', fontSize: '0.8rem' }}>
+                      상세 논리 모델로 상세화 (Refine)
+                    </label>
+                    <select
+                      className="form-control"
+                      style={{ marginBottom: '8px', fontSize: '0.75rem' }}
+                      value={refineTargetFile}
+                      onChange={(e) => setRefineTargetFile(e.target.value)}
+                    >
+                      <option value="">-- 대상 상세 모델 파일 선택 --</option>
+                      {projectFiles
+                        .filter((f: any) => f.name !== activeFileName && !f.name.includes('conceptual'))
+                        .map((f: any) => (
+                          <option key={f.name} value={f.name}>{getFileDisplayName(f)}</option>
+                        ))}
+                    </select>
+                    <button 
+                      className="btn btn-primary" 
+                      style={{ width: '100%', fontSize: '0.75rem', padding: '6px', backgroundColor: 'var(--accent-color)', borderColor: 'var(--accent-color)' }}
+                      disabled={!refineTargetFile}
+                      onClick={() => handleRefineEntity(selectedEntity.name, refineTargetFile)}
+                    >
+                      상세 모델로 상세화 진행
+                    </button>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '4px', textAlign: 'center' }}>
+                      * 주요 속성(key_attributes)이 상세 모델의 속성으로 자동 변환됩니다.
+                    </div>
+                  </div>
+                )
               )}
 
               {/* Attributes Section */}
@@ -2262,7 +2796,12 @@ relationships: []
 
       {/* Standardization Dictionary Manager Modal */}
       {isDictOpen && (
-        <DictionaryManager model={model} onClose={() => setIsDictOpen(false)} />
+        <DictionaryManager 
+          model={model} 
+          projectFiles={projectFiles}
+          onUpdateFile={handleUpdateProjectFile}
+          onClose={() => setIsDictOpen(false)} 
+        />
       )}
 
       {/* Physical Transform Wizard Modal */}

@@ -24,19 +24,30 @@ export function parseModel(yamlContent: string): LogicalModel {
 
   // Parse Entities
   if (Array.isArray(raw.entities)) {
-    model.entities = raw.entities.map((ent: any) => {
+    model.entities = raw.entities.map((ent: any, entIndex: number) => {
+      const entityId = ent.id || `ent_${ent.name ? encodeURIComponent(ent.name) : entIndex + 1}`;
       return {
+        id: entityId,
         name: ent.name,
+        physicalName: ent.physicalName || ent.physical_name || ent.table_name,
+        alias: ent.alias,
         type: ent.type || 'entity',
+        classification: ent.classification,
+        level: ent.level,
+        volume: ent.volume,
         supertype: ent.supertype,
         identifier: ent.identifier || [],
         discriminator: ent.discriminator,
         attributes: Array.isArray(ent.attributes)
-          ? ent.attributes.map((attr: any) => ({
+          ? ent.attributes.map((attr: any, attrIndex: number) => ({
+              id: attr.id || `${entityId}_attr_${attr.name ? encodeURIComponent(attr.name) : attrIndex + 1}`,
               name: attr.name,
+              physicalName: attr.physicalName || attr.physical_name || attr.column_name,
+              alias: attr.alias,
               domain: attr.domain,
               required: attr.required ?? false,
               identifier: attr.identifier ?? false,
+              keyType: attr.keyType || (attr.identifier ? 'PK' : attr.fk ? 'FK' : 'NORMAL'),
               fk: attr.fk ?? false,
               description: attr.description,
               defaultValue: attr.defaultValue,
@@ -45,6 +56,7 @@ export function parseModel(yamlContent: string): LogicalModel {
         subtype_sets: ent.subtype_sets,
         key_attributes: ent.key_attributes,
         purpose: ent.purpose,
+        business_rules: ent.business_rules,
       };
     });
   }
@@ -133,17 +145,27 @@ export function stringifyModel(model: LogicalModel): string {
     standard_document: model.standard_document,
     rules: model.rules?.length ? model.rules : undefined,
     entities: model.entities.map(ent => ({
+      id: ent.id || undefined,
       name: ent.name,
+      physicalName: ent.physicalName || undefined,
+      alias: ent.alias || undefined,
       type: ent.type,
+      classification: ent.classification || undefined,
+      level: ent.level || undefined,
+      volume: ent.volume || undefined,
       supertype: ent.supertype || undefined,
       identifier: ent.identifier,
       discriminator: ent.discriminator || undefined,
       attributes: ent.attributes && ent.attributes.length > 0
         ? ent.attributes.map(attr => ({
+            id: attr.id || undefined,
             name: attr.name,
+            physicalName: attr.physicalName || undefined,
+            alias: attr.alias || undefined,
             domain: attr.domain || undefined,
             required: attr.required,
             identifier: attr.identifier ? true : undefined,
+            keyType: attr.keyType !== 'NORMAL' ? attr.keyType : undefined,
             fk: attr.fk ? true : undefined,
             description: attr.description || undefined,
             defaultValue: attr.defaultValue || undefined,
@@ -152,6 +174,7 @@ export function stringifyModel(model: LogicalModel): string {
       subtype_sets: ent.subtype_sets || undefined,
       key_attributes: ent.key_attributes || undefined,
       purpose: ent.purpose || undefined,
+      business_rules: ent.business_rules?.length ? ent.business_rules : undefined,
     })),
     subtype_sets: model.subtype_sets?.length
       ? model.subtype_sets.map(set => ({

@@ -1,0 +1,643 @@
+subject_area: QVI 외부연계/감사/알림
+notation: Barker logical model
+version: 0.1
+status: draft
+source_context:
+  - doc/DB설계/QVI 개념 모델.md
+  - doc/DB설계/QVI 상세 논리 모델 작성 기준.md
+artifact_policy: YAML only. SVG 산출물은 생성하지 않는다.
+
+relationship_notation:
+  participation:
+    optional_one: "0..1"
+    mandatory_one: "1..1"
+    optional_many: "0..M"
+    mandatory_many: "1..M"
+  identifying_rule: 부모 FK가 자식 PK에 포함되면 식별관계이다.
+  non_identifying_rule: FK가 필수라도 자식 PK에 포함되지 않으면 비식별 참조 관계이다.
+
+modeling_principles:
+  - GLEIS API, GLEIF Reporting API, Sally/verifier, Witness, Watcher, KERIA 호출은 연계작업과 연계시도이력으로 추적한다.
+  - QVI KERIA, LE KERIA, User KERIA는 외부기관은 아니지만 포탈 관점에서는 연계시스템으로 관리한다.
+  - 연계작업은 업무 상태의 원천이 아니라 외부 호출, 재시도, 장애 보정을 위한 작업 단위이다.
+  - 연계작업 실패와 재시도는 발급신청, 생명주기신청, 과금 등 업무 상태와 분리한다.
+  - 연계시도이력에는 요청/응답 요약과 오류 정보를 남기되 secret, token, 개인정보 원문 저장은 제한한다.
+  - 알림통지는 업무 상태의 원천이 아니라 이용자 안내와 발송 이력을 위한 엔터티이다.
+  - 감사로그는 핵심 업무 행위와 상태 변경을 추적한다. 감사 대상은 업무대상유형코드와 대상식별자값을 기본으로 남기고, 주요 대상은 선택 FK도 함께 둘 수 있다.
+  - 중복 전송 방지를 위해 연계작업은 idempotency key와 correlation id를 가진다.
+
+entities:
+  - name: 외부연계시스템
+    type: entity
+    identifier: 연계시스템번호
+    attributes:
+      - { name: 연계시스템번호, domain: 연계시스템번호, required: true, identifier: true }
+      - { name: 운영외부기관이용자번호, domain: 이용자번호, required: false, foreign_key: true }
+      - { name: 연계시스템유형코드, domain: 연계시스템유형코드, required: true }
+      - { name: 연계시스템상태코드, domain: 연계시스템상태코드, required: true }
+      - { name: 연계시스템명, domain: 명칭, required: true }
+      - { name: 연계시스템설명내용, domain: 내용, required: false }
+      - { name: 내부시스템여부, domain: 여부, required: true }
+      - { name: 인증정보참조값, domain: 참조값, required: false }
+      - { name: 상태확인주기초수, domain: 건수, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: 연계엔드포인트
+    type: entity
+    identifier: 엔드포인트번호
+    attributes:
+      - { name: 엔드포인트번호, domain: 엔드포인트번호, required: true, identifier: true }
+      - { name: 연계시스템번호, domain: 연계시스템번호, required: true, foreign_key: true }
+      - { name: 엔드포인트유형코드, domain: 엔드포인트유형코드, required: true }
+      - { name: 엔드포인트상태코드, domain: 엔드포인트상태코드, required: true }
+      - { name: 엔드포인트명, domain: 명칭, required: true }
+      - { name: 엔드포인트URL, domain: URL, required: true }
+      - { name: HTTP메서드코드, domain: HTTP메서드코드, required: false }
+      - { name: 인증정보참조값, domain: 참조값, required: false }
+      - { name: 제한시간초수, domain: 건수, required: false }
+      - { name: 최대재시도횟수, domain: 건수, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: 연계작업
+    type: entity
+    identifier: 연계작업번호
+    attributes:
+      - { name: 연계작업번호, domain: 연계작업번호, required: true, identifier: true }
+      - { name: 연계시스템번호, domain: 연계시스템번호, required: true, foreign_key: true }
+      - { name: 엔드포인트번호, domain: 엔드포인트번호, required: false, foreign_key: true }
+      - { name: 발급신청번호, domain: 신청번호, required: false, foreign_key: true }
+      - { name: 생명주기신청번호, domain: 생명주기신청번호, required: false, foreign_key: true }
+      - { name: KERI식별자번호, domain: KERI식별자번호, required: false, foreign_key: true }
+      - { name: ACDC자격증명번호, domain: ACDC자격증명번호, required: false, foreign_key: true }
+      - { name: 과금번호, domain: 과금번호, required: false, foreign_key: true }
+      - { name: 결제번호, domain: 결제번호, required: false, foreign_key: true }
+      - { name: 업무대상유형코드, domain: 업무대상유형코드, required: true }
+      - { name: 대상식별자값, domain: 식별값, required: true }
+      - { name: 연계작업유형코드, domain: 연계작업유형코드, required: true }
+      - { name: 연계작업상태코드, domain: 연계작업상태코드, required: true }
+      - { name: 우선순위코드, domain: 우선순위코드, required: true }
+      - { name: 멱등키값, domain: 식별값, required: false }
+      - { name: 상관관계식별자, domain: 식별값, required: false }
+      - { name: 외부참조값, domain: 참조값, required: false }
+      - { name: 요청요약내용, domain: 내용, required: false }
+      - { name: 응답요약내용, domain: 내용, required: false }
+      - { name: 재시도횟수, domain: 건수, required: true }
+      - { name: 최대재시도횟수, domain: 건수, required: true }
+      - { name: 다음재시도일시, domain: 일시, required: false }
+      - { name: DLQ전환일시, domain: 일시, required: false }
+      - { name: 수동처리여부, domain: 여부, required: true }
+      - { name: 요청일시, domain: 일시, required: true }
+      - { name: 완료일시, domain: 일시, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: 연계시도이력
+    type: history_entity
+    identifier: 연계시도이력번호
+    attributes:
+      - { name: 연계시도이력번호, domain: 이력번호, required: true, identifier: true }
+      - { name: 연계작업번호, domain: 연계작업번호, required: true, foreign_key: true }
+      - { name: 엔드포인트번호, domain: 엔드포인트번호, required: false, foreign_key: true }
+      - { name: 시도순번, domain: 순번, required: true }
+      - { name: 시도상태코드, domain: 연계시도상태코드, required: true }
+      - { name: 요청HTTP메서드코드, domain: HTTP메서드코드, required: false }
+      - { name: 요청URL, domain: URL, required: false }
+      - { name: 요청해시값, domain: 해시값, required: false }
+      - { name: 응답코드, domain: 코드값, required: false }
+      - { name: HTTP상태코드, domain: 코드값, required: false }
+      - { name: 응답해시값, domain: 해시값, required: false }
+      - { name: 요청요약내용, domain: 내용, required: false }
+      - { name: 응답요약내용, domain: 내용, required: false }
+      - { name: 오류코드, domain: 코드값, required: false }
+      - { name: 오류내용, domain: 내용, required: false }
+      - { name: 시도시작일시, domain: 일시, required: true }
+      - { name: 시도종료일시, domain: 일시, required: false }
+      - { name: 소요밀리초수, domain: 건수, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+
+  - name: 감사로그
+    type: log_entity
+    identifier: 감사로그번호
+    attributes:
+      - { name: 감사로그번호, domain: 감사로그번호, required: true, identifier: true }
+      - { name: 행위자이용자번호, domain: 이용자번호, required: false, foreign_key: true }
+      - { name: 연계작업번호, domain: 연계작업번호, required: false, foreign_key: true }
+      - { name: 발급신청번호, domain: 신청번호, required: false, foreign_key: true }
+      - { name: 생명주기신청번호, domain: 생명주기신청번호, required: false, foreign_key: true }
+      - { name: KERI식별자번호, domain: KERI식별자번호, required: false, foreign_key: true }
+      - { name: ACDC자격증명번호, domain: ACDC자격증명번호, required: false, foreign_key: true }
+      - { name: 과금번호, domain: 과금번호, required: false, foreign_key: true }
+      - { name: 결제번호, domain: 결제번호, required: false, foreign_key: true }
+      - { name: 게시물번호, domain: 게시물번호, required: false, foreign_key: true }
+      - { name: 감사이벤트유형코드, domain: 감사이벤트유형코드, required: true }
+      - { name: 감사이벤트결과코드, domain: 감사이벤트결과코드, required: true }
+      - { name: 업무대상유형코드, domain: 업무대상유형코드, required: true }
+      - { name: 대상식별자값, domain: 식별값, required: true }
+      - { name: 변경전요약내용, domain: 내용, required: false }
+      - { name: 변경후요약내용, domain: 내용, required: false }
+      - { name: 요청IP주소값, domain: IP주소, required: false }
+      - { name: 사용자에이전트값, domain: 내용, required: false }
+      - { name: 발생일시, domain: 일시, required: true }
+      - { name: 등록일시, domain: 일시, required: true }
+
+  - name: 알림템플릿
+    type: reference_entity
+    identifier: 알림템플릿번호
+    attributes:
+      - { name: 알림템플릿번호, domain: 알림템플릿번호, required: true, identifier: true }
+      - { name: 등록자이용자번호, domain: 이용자번호, required: false, foreign_key: true }
+      - { name: 통지유형코드, domain: 통지유형코드, required: true }
+      - { name: 통지채널코드, domain: 통지채널코드, required: true }
+      - { name: 템플릿상태코드, domain: 알림템플릿상태코드, required: true }
+      - { name: 템플릿명, domain: 명칭, required: true }
+      - { name: 제목템플릿내용, domain: 내용, required: false }
+      - { name: 본문템플릿내용, domain: 내용, required: true }
+      - { name: 변수정의내용, domain: 내용, required: false }
+      - { name: 템플릿버전값, domain: 식별값, required: true }
+      - { name: 유효시작일시, domain: 일시, required: true }
+      - { name: 유효종료일시, domain: 일시, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: 알림통지
+    type: entity
+    identifier: 통지번호
+    attributes:
+      - { name: 통지번호, domain: 통지번호, required: true, identifier: true }
+      - { name: 알림템플릿번호, domain: 알림템플릿번호, required: false, foreign_key: true }
+      - { name: 연계작업번호, domain: 연계작업번호, required: false, foreign_key: true }
+      - { name: 발급신청번호, domain: 신청번호, required: false, foreign_key: true }
+      - { name: 생명주기신청번호, domain: 생명주기신청번호, required: false, foreign_key: true }
+      - { name: ACDC자격증명번호, domain: ACDC자격증명번호, required: false, foreign_key: true }
+      - { name: 과금번호, domain: 과금번호, required: false, foreign_key: true }
+      - { name: 결제번호, domain: 결제번호, required: false, foreign_key: true }
+      - { name: 통지유형코드, domain: 통지유형코드, required: true }
+      - { name: 통지상태코드, domain: 통지상태코드, required: true }
+      - { name: 업무대상유형코드, domain: 업무대상유형코드, required: false }
+      - { name: 대상식별자값, domain: 식별값, required: false }
+      - { name: 통지제목명, domain: 명칭, required: false }
+      - { name: 통지본문내용, domain: 내용, required: false }
+      - { name: 예약발송일시, domain: 일시, required: false }
+      - { name: 발송완료일시, domain: 일시, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: 알림통지수신자
+    type: relationship_entity
+    identifier: [통지번호, 수신자이용자번호]
+    attributes:
+      - { name: 통지번호, domain: 통지번호, required: true, identifier: true, foreign_key: true }
+      - { name: 수신자이용자번호, domain: 이용자번호, required: true, identifier: true, foreign_key: true }
+      - { name: 수신상태코드, domain: 수신상태코드, required: true }
+      - { name: 읽음여부, domain: 여부, required: true }
+      - { name: 읽음일시, domain: 일시, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: 알림발송이력
+    type: history_entity
+    identifier: 알림발송이력번호
+    attributes:
+      - { name: 알림발송이력번호, domain: 이력번호, required: true, identifier: true }
+      - { name: 통지번호, domain: 통지번호, required: true, foreign_key: true }
+      - { name: 수신자이용자번호, domain: 이용자번호, required: true, foreign_key: true }
+      - { name: 통지채널코드, domain: 통지채널코드, required: true }
+      - { name: 발송상태코드, domain: 발송상태코드, required: true }
+      - { name: 발송시도순번, domain: 순번, required: true }
+      - { name: 외부발송식별자, domain: 식별값, required: false }
+      - { name: 발송요청일시, domain: 일시, required: true }
+      - { name: 발송완료일시, domain: 일시, required: false }
+      - { name: 실패사유내용, domain: 내용, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+
+external_entities:
+  - { name: 이용자, owner: QVI 이용자/가입/계정 }
+  - { name: 외부기관, owner: QVI 이용자/가입/계정, note: 이용자 서브타입 }
+  - { name: 발급신청, owner: QVI 발급신청/생명주기 }
+  - { name: 자격증명생명주기신청, owner: QVI 발급신청/생명주기 }
+  - { name: KERI식별자, owner: QVI KERI/지갑 }
+  - { name: ACDC자격증명, owner: QVI KERI/지갑 }
+  - { name: 과금, owner: QVI 과금/결제/포인트 }
+  - { name: 결제, owner: QVI 과금/결제/포인트 }
+  - { name: 게시물, owner: QVI 포탈콘텐츠 }
+
+relationships:
+  - id: R-INT-001
+    parent: 외부기관
+    child: 외부연계시스템
+    parent_to_child: 운영한다
+    child_to_parent: 운영된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [운영외부기관이용자번호]
+    barker_sentence: 각 외부기관은 외부연계시스템을 0개 이상 운영할 수 있다. 각 외부연계시스템은 운영 외부기관이 없거나 하나일 수 있다.
+  - id: R-INT-002
+    parent: 외부연계시스템
+    child: 연계엔드포인트
+    parent_to_child: 가진다
+    child_to_parent: 속한다
+    cardinality: "1:M"
+    parent_participation: "1..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [연계시스템번호]
+    barker_sentence: 각 외부연계시스템은 하나 이상의 연계엔드포인트를 가진다. 각 연계엔드포인트는 반드시 하나의 외부연계시스템에 속한다.
+  - id: R-INT-003
+    parent: 외부연계시스템
+    child: 연계작업
+    parent_to_child: 대상이 된다
+    child_to_parent: 대상으로 실행된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [연계시스템번호]
+    barker_sentence: 각 외부연계시스템은 연계작업의 대상이 0회 이상 될 수 있다. 각 연계작업은 반드시 하나의 외부연계시스템을 대상으로 한다.
+  - id: R-INT-004
+    parent: 연계엔드포인트
+    child: 연계작업
+    parent_to_child: 호출대상이 된다
+    child_to_parent: 호출한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [엔드포인트번호]
+    barker_sentence: 각 연계엔드포인트는 연계작업의 호출 대상이 0회 이상 될 수 있다. 각 연계작업은 특정 엔드포인트가 없거나 하나일 수 있다.
+  - id: R-INT-005
+    parent: 연계작업
+    child: 연계시도이력
+    parent_to_child: 가진다
+    child_to_parent: 속한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [연계작업번호]
+    barker_sentence: 각 연계작업은 연계시도이력을 0개 이상 가질 수 있다. 각 연계시도이력은 반드시 하나의 연계작업에 속한다.
+  - id: R-INT-006
+    parent: 연계엔드포인트
+    child: 연계시도이력
+    parent_to_child: 실제호출된다
+    child_to_parent: 호출한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [엔드포인트번호]
+    barker_sentence: 각 연계엔드포인트는 실제 호출 이력의 대상이 0회 이상 될 수 있다. 각 연계시도이력은 실제 호출 엔드포인트가 없거나 하나일 수 있다.
+  - id: R-INT-007
+    parent: 발급신청
+    child: 연계작업
+    parent_to_child: 유발한다
+    child_to_parent: 유발된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [발급신청번호]
+    barker_sentence: 각 발급신청은 연계작업을 0개 이상 유발할 수 있다. 각 연계작업은 발급신청에서 유발되지 않았거나 하나의 발급신청에서 유발된다.
+  - id: R-INT-008
+    parent: 자격증명생명주기신청
+    child: 연계작업
+    parent_to_child: 유발한다
+    child_to_parent: 유발된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [생명주기신청번호]
+    barker_sentence: 각 자격증명생명주기신청은 연계작업을 0개 이상 유발할 수 있다. 각 연계작업은 생명주기신청에서 유발되지 않았거나 하나의 생명주기신청에서 유발된다.
+  - id: R-INT-009
+    parent: KERI식별자
+    child: 연계작업
+    parent_to_child: 대상이 된다
+    child_to_parent: 대상으로 처리한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [KERI식별자번호]
+    barker_sentence: 각 KERI식별자는 연계작업의 대상이 0회 이상 될 수 있다. 각 연계작업은 대상 KERI식별자가 없거나 하나일 수 있다.
+  - id: R-INT-010
+    parent: ACDC자격증명
+    child: 연계작업
+    parent_to_child: 대상이 된다
+    child_to_parent: 대상으로 처리한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [ACDC자격증명번호]
+    barker_sentence: 각 ACDC자격증명은 연계작업의 대상이 0회 이상 될 수 있다. 각 연계작업은 대상 ACDC자격증명이 없거나 하나일 수 있다.
+  - id: R-INT-011
+    parent: 과금
+    child: 연계작업
+    parent_to_child: 유발한다
+    child_to_parent: 유발된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [과금번호]
+    barker_sentence: 각 과금은 연계작업을 0개 이상 유발할 수 있다. 각 연계작업은 과금에서 유발되지 않았거나 하나의 과금에서 유발된다.
+  - id: R-INT-012
+    parent: 결제
+    child: 연계작업
+    parent_to_child: 유발한다
+    child_to_parent: 유발된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [결제번호]
+    barker_sentence: 각 결제는 연계작업을 0개 이상 유발할 수 있다. 각 연계작업은 결제에서 유발되지 않았거나 하나의 결제에서 유발된다.
+  - id: R-INT-013
+    parent: 이용자
+    child: 감사로그
+    parent_to_child: 행위한다
+    child_to_parent: 기록된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [행위자이용자번호]
+    barker_sentence: 각 이용자는 감사로그의 행위자가 0회 이상 될 수 있다. 각 감사로그는 행위자 이용자가 없거나 하나일 수 있다.
+  - id: R-INT-014
+    parent: 연계작업
+    child: 감사로그
+    parent_to_child: 기록된다
+    child_to_parent: 관련된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [연계작업번호]
+    barker_sentence: 각 연계작업은 감사로그를 0개 이상 가질 수 있다. 각 감사로그는 관련 연계작업이 없거나 하나일 수 있다.
+  - id: R-INT-015
+    parent: 발급신청
+    child: 감사로그
+    parent_to_child: 기록된다
+    child_to_parent: 관련된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [발급신청번호]
+    barker_sentence: 각 발급신청은 감사로그를 0개 이상 가질 수 있다. 각 감사로그는 관련 발급신청이 없거나 하나일 수 있다.
+  - id: R-INT-016
+    parent: 자격증명생명주기신청
+    child: 감사로그
+    parent_to_child: 기록된다
+    child_to_parent: 관련된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [생명주기신청번호]
+    barker_sentence: 각 자격증명생명주기신청은 감사로그를 0개 이상 가질 수 있다. 각 감사로그는 관련 생명주기신청이 없거나 하나일 수 있다.
+  - id: R-INT-017
+    parent: KERI식별자
+    child: 감사로그
+    parent_to_child: 기록된다
+    child_to_parent: 관련된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [KERI식별자번호]
+    barker_sentence: 각 KERI식별자는 감사로그를 0개 이상 가질 수 있다. 각 감사로그는 관련 KERI식별자가 없거나 하나일 수 있다.
+  - id: R-INT-018
+    parent: ACDC자격증명
+    child: 감사로그
+    parent_to_child: 기록된다
+    child_to_parent: 관련된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [ACDC자격증명번호]
+    barker_sentence: 각 ACDC자격증명은 감사로그를 0개 이상 가질 수 있다. 각 감사로그는 관련 ACDC자격증명이 없거나 하나일 수 있다.
+  - id: R-INT-019
+    parent: 과금
+    child: 감사로그
+    parent_to_child: 기록된다
+    child_to_parent: 관련된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [과금번호]
+    barker_sentence: 각 과금은 감사로그를 0개 이상 가질 수 있다. 각 감사로그는 관련 과금이 없거나 하나일 수 있다.
+  - id: R-INT-020
+    parent: 결제
+    child: 감사로그
+    parent_to_child: 기록된다
+    child_to_parent: 관련된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [결제번호]
+    barker_sentence: 각 결제는 감사로그를 0개 이상 가질 수 있다. 각 감사로그는 관련 결제가 없거나 하나일 수 있다.
+  - id: R-INT-021
+    parent: 게시물
+    child: 감사로그
+    parent_to_child: 기록된다
+    child_to_parent: 관련된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [게시물번호]
+    barker_sentence: 각 게시물은 감사로그를 0개 이상 가질 수 있다. 각 감사로그는 관련 게시물이 없거나 하나일 수 있다.
+  - id: R-INT-022
+    parent: 이용자
+    child: 알림템플릿
+    parent_to_child: 등록한다
+    child_to_parent: 등록된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [등록자이용자번호]
+    barker_sentence: 각 이용자는 알림템플릿을 0개 이상 등록할 수 있다. 각 알림템플릿은 등록자가 없거나 하나일 수 있다.
+  - id: R-INT-023
+    parent: 알림템플릿
+    child: 알림통지
+    parent_to_child: 생성기준이 된다
+    child_to_parent: 기준으로 생성된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [알림템플릿번호]
+    barker_sentence: 각 알림템플릿은 알림통지 생성 기준이 0회 이상 될 수 있다. 각 알림통지는 기준 템플릿이 없거나 하나일 수 있다.
+  - id: R-INT-024
+    parent: 연계작업
+    child: 알림통지
+    parent_to_child: 유발한다
+    child_to_parent: 유발된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [연계작업번호]
+    barker_sentence: 각 연계작업은 알림통지를 0개 이상 유발할 수 있다. 각 알림통지는 연계작업에서 유발되지 않았거나 하나의 연계작업에서 유발된다.
+  - id: R-INT-025
+    parent: 발급신청
+    child: 알림통지
+    parent_to_child: 유발한다
+    child_to_parent: 유발된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [발급신청번호]
+    barker_sentence: 각 발급신청은 알림통지를 0개 이상 유발할 수 있다. 각 알림통지는 발급신청에서 유발되지 않았거나 하나의 발급신청에서 유발된다.
+  - id: R-INT-026
+    parent: 자격증명생명주기신청
+    child: 알림통지
+    parent_to_child: 유발한다
+    child_to_parent: 유발된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [생명주기신청번호]
+    barker_sentence: 각 생명주기신청은 알림통지를 0개 이상 유발할 수 있다. 각 알림통지는 생명주기신청에서 유발되지 않았거나 하나의 생명주기신청에서 유발된다.
+  - id: R-INT-027
+    parent: ACDC자격증명
+    child: 알림통지
+    parent_to_child: 유발한다
+    child_to_parent: 유발된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [ACDC자격증명번호]
+    barker_sentence: 각 ACDC자격증명은 알림통지를 0개 이상 유발할 수 있다. 각 알림통지는 ACDC자격증명에서 유발되지 않았거나 하나의 ACDC자격증명에서 유발된다.
+  - id: R-INT-028
+    parent: 과금
+    child: 알림통지
+    parent_to_child: 유발한다
+    child_to_parent: 유발된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [과금번호]
+    barker_sentence: 각 과금은 알림통지를 0개 이상 유발할 수 있다. 각 알림통지는 과금에서 유발되지 않았거나 하나의 과금에서 유발된다.
+  - id: R-INT-029
+    parent: 결제
+    child: 알림통지
+    parent_to_child: 유발한다
+    child_to_parent: 유발된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [결제번호]
+    barker_sentence: 각 결제는 알림통지를 0개 이상 유발할 수 있다. 각 알림통지는 결제에서 유발되지 않았거나 하나의 결제에서 유발된다.
+  - id: R-INT-030
+    parent: 알림통지
+    child: 알림통지수신자
+    parent_to_child: 가진다
+    child_to_parent: 속한다
+    cardinality: "1:M"
+    parent_participation: "1..M"
+    child_participation: "1..1"
+    identifying: true
+    fk_attributes: [통지번호]
+    barker_sentence: 각 알림통지는 하나 이상의 수신자를 가진다. 각 알림통지수신자는 반드시 하나의 알림통지에 속한다.
+  - id: R-INT-031
+    parent: 이용자
+    child: 알림통지수신자
+    parent_to_child: 수신한다
+    child_to_parent: 수신자로 지정된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: true
+    fk_attributes: [수신자이용자번호]
+    barker_sentence: 각 이용자는 알림통지를 0개 이상 수신할 수 있다. 각 알림통지수신자는 반드시 하나의 수신자 이용자를 가진다.
+  - id: R-INT-032
+    parent: 알림통지수신자
+    child: 알림발송이력
+    parent_to_child: 가진다
+    child_to_parent: 속한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [통지번호, 수신자이용자번호]
+    barker_sentence: 각 알림통지수신자는 발송 이력을 0개 이상 가질 수 있다. 각 알림발송이력은 반드시 하나의 알림통지수신자에 속한다.
+
+business_rules:
+  - 외부연계시스템은 최소 하나의 활성 연계엔드포인트를 가져야 운영 가능 상태가 된다.
+  - 연계작업은 연계시스템번호를 반드시 가진다.
+  - 연계작업은 발급신청번호, 생명주기신청번호, KERI식별자번호, ACDC자격증명번호, 과금번호, 결제번호 중 하나 이상을 업무 근거로 가져야 한다.
+  - 연계작업의 멱등키값은 같은 연계시스템, 같은 연계작업유형, 같은 업무대상 조합 안에서 중복될 수 없다.
+  - 연계작업상태코드가 SUCCEEDED이면 완료일시를 가져야 한다.
+  - 연계작업상태코드가 RETRY_WAIT이면 다음재시도일시를 가져야 한다.
+  - 연계작업상태코드가 DLQ이면 DLQ전환일시를 가져야 한다.
+  - 연계시도이력의 시도순번은 동일 연계작업 안에서 중복될 수 없다.
+  - 연계시도이력에는 요청/응답 원문 대신 해시값, 요약, 오류코드, 오류내용을 우선 저장한다.
+  - 감사로그는 행위자이용자번호가 없는 시스템 이벤트도 허용한다.
+  - 감사로그는 업무대상유형코드와 대상식별자값을 반드시 가진다.
+  - 알림통지는 하나 이상의 알림통지수신자를 가져야 한다.
+  - 알림발송이력의 발송시도순번은 동일 통지번호, 수신자이용자번호, 통지채널코드 안에서 중복될 수 없다.
+  - 알림통지는 업무 상태의 원천이 아니며, 통지 실패가 곧 발급신청이나 결제 실패를 의미하지 않는다.
+
+code_groups:
+  연계시스템유형코드: [GLEIS_API, GLEIF_REPORTING_API, SALLY_VERIFIER, WITNESS, WATCHER, SCHEMA_SERVER, LEDGER_REGISTRAR, QVI_KERIA, LE_KERIA, USER_KERIA, PAYMENT_GATEWAY, TAX_INVOICE_PROVIDER, NOTIFICATION_PROVIDER]
+  연계시스템상태코드: [ACTIVE, INACTIVE, DEGRADED, MAINTENANCE, RETIRED]
+  엔드포인트유형코드: [API_BASE, WELL_KNOWN, OOBI, WITNESS, WEBHOOK, ADMIN, HEALTH_CHECK, SCHEMA, REPORTING]
+  엔드포인트상태코드: [ACTIVE, INACTIVE, DEGRADED, MAINTENANCE, RETIRED]
+  HTTP메서드코드: [GET, POST, PUT, PATCH, DELETE]
+  연계작업유형코드: [LEI_LOOKUP, GLEIF_REPORT_ISSUE, GLEIF_REPORT_REVOKE, SALLY_VERIFY, OOBI_RESOLVE, WITNESS_RECEIPT, WATCHER_QUERY, KERIA_CREATE_AID, KERIA_ROTATE, KERIA_REGISTRY_CREATE, KERIA_ISSUE, KERIA_GRANT, KERIA_ADMIT, KERIA_REVOKE, PG_PAYMENT, TAX_INVOICE_ISSUE, NOTIFICATION_SEND]
+  연계작업상태코드: [REQUESTED, QUEUED, IN_PROGRESS, SUCCEEDED, RETRY_WAIT, FAILED, DLQ, CANCELED, MANUAL_RESOLVED]
+  연계시도상태코드: [STARTED, SUCCEEDED, FAILED, TIMEOUT, CANCELED]
+  업무대상유형코드: [USER, SIGNUP_APPLICATION, ISSUE_APPLICATION, LIFECYCLE_APPLICATION, KERI_IDENTIFIER, ACDC_CREDENTIAL, BILLING, PAYMENT, BOARD_POST, INTEGRATION_JOB]
+  우선순위코드: [LOW, NORMAL, HIGH, URGENT]
+  감사이벤트유형코드: [CREATE, UPDATE, DELETE, STATUS_CHANGE, LOGIN, LOGOUT, APPROVE, REJECT, ISSUE, REVOKE, PAYMENT, REFUND, INTEGRATION_REQUEST, INTEGRATION_RESPONSE, VIEW, DOWNLOAD]
+  감사이벤트결과코드: [SUCCESS, FAIL, DENIED, ERROR]
+  통지유형코드: [SIGNUP, APPLICATION, REVIEW, ISSUE, REVOKE, PAYMENT, REFUND, POINT, INTEGRATION_FAILURE, NOTICE]
+  통지상태코드: [CREATED, SCHEDULED, SENDING, SENT, PARTIALLY_FAILED, FAILED, CANCELED]
+  통지채널코드: [IN_APP, EMAIL, SMS, KAKAO, WEBHOOK]
+  알림템플릿상태코드: [DRAFT, ACTIVE, INACTIVE, RETIRED]
+  수신상태코드: [PENDING, SENT, FAILED, READ, CANCELED]
+  발송상태코드: [REQUESTED, SENT, FAILED, CANCELED]
+
+standard_domains:
+  연계시스템번호: { type: string, length: 36, description: UUID 기준 }
+  엔드포인트번호: { type: string, length: 36, description: UUID 기준 }
+  연계작업번호: { type: string, length: 36, description: UUID 기준 }
+  이력번호: { type: string, length: 36, description: UUID 기준 }
+  감사로그번호: { type: string, length: 36, description: UUID 기준 }
+  알림템플릿번호: { type: string, length: 36, description: UUID 기준 }
+  통지번호: { type: string, length: 36, description: UUID 기준 }
+  이용자번호: { type: string, length: 36, description: 이용자 식별자 }
+  신청번호: { type: string, length: 36, description: 발급신청 식별자 }
+  생명주기신청번호: { type: string, length: 36, description: 생명주기신청 식별자 }
+  KERI식별자번호: { type: string, length: 36, description: KERI식별자 식별자 }
+  ACDC자격증명번호: { type: string, length: 36, description: ACDC자격증명 식별자 }
+  과금번호: { type: string, length: 36, description: 과금 식별자 }
+  결제번호: { type: string, length: 36, description: 결제 식별자 }
+  게시물번호: { type: string, length: 36, description: 게시물 식별자 }
+  명칭: { type: string, length: 500, description: 시스템명, 엔드포인트명, 제목 등 }
+  내용: { type: clob, description: 요약, 본문, 오류내용 등 }
+  URL: { type: string, length: 2000, description: 호출 URL }
+  참조값: { type: string, length: 255, description: 보안 저장소 참조, 외부 참조값 }
+  식별값: { type: string, length: 255, description: 멱등키, correlation id, 대상 식별자 등 }
+  해시값: { type: string, length: 128, description: 요청/응답 해시 }
+  코드값: { type: string, length: 100, description: 응답코드, 오류코드 등 }
+  IP주소: { type: string, length: 45, description: IPv4 또는 IPv6 }
+  여부: { type: string, length: 1, description: Y/N }
+  건수: { type: number, precision: 19, description: 횟수, 초수, 밀리초수 등 }
+  순번: { type: number, precision: 10, description: 시도 순번 }
+  일시: { type: timestamp, description: 발생 시각 }

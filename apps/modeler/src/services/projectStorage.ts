@@ -1,4 +1,18 @@
-import { DEFAULT_MODEL_YAML } from '../defaultModel.js';
+import { 
+  DEFAULT_PROJECT_CONFIG_YAML,
+  DEFAULT_CONCEPTUAL_YAML,
+  DEFAULT_LOGICAL_YAML,
+  DEFAULT_USER_ACCOUNT_LOGICAL_YAML,
+  DEFAULT_KERI_WALLET_LOGICAL_YAML,
+  DEFAULT_APPLICATION_LIFECYCLE_LOGICAL_YAML,
+  DEFAULT_BILLING_PAYMENT_POINT_LOGICAL_YAML,
+  DEFAULT_INTEGRATION_AUDIT_NOTIFICATION_LOGICAL_YAML,
+  DEFAULT_PORTAL_CONTENT_LOGICAL_YAML,
+  DEFAULT_IDENTIFIER_LOGICAL_YAML,
+  DEFAULT_DICTIONARY_YAML,
+  DEFAULT_DOMAINS_YAML,
+  DEFAULT_OVERRIDES_YAML
+} from '../defaultModel.js';
 
 export interface ProjectFile {
   name: string;
@@ -49,7 +63,43 @@ export function getProjects(): Project[] {
     if (!data) {
       return initializeDefaultProject();
     }
-    return JSON.parse(data);
+    const projects: Project[] = JSON.parse(data);
+
+    // Self-healing: Clean up any corrupted or NaN layout coordinates to prevent canvas crashes
+    projects.forEach(proj => {
+      if (proj.files) {
+        proj.files.forEach(f => {
+          if (f.layout) {
+            const layout = f.layout;
+            const cleanedLayout: Record<string, { x: number; y: number; width?: number; height?: number }> = {};
+            Object.keys(layout).forEach(id => {
+              const item = layout[id] as any;
+              if (item && typeof item.x === 'number' && !isNaN(item.x) && typeof item.y === 'number' && !isNaN(item.y)) {
+                cleanedLayout[id] = item;
+              }
+            });
+            f.layout = cleanedLayout;
+          }
+        });
+      }
+    });
+    
+    // Migration: If the default project exists but does not have the new detailed logical model files,
+    // force re-initialize the default project to load all 8 logical files.
+    const defaultProjIndex = projects.findIndex(p => p.id === 'proj_default');
+    if (defaultProjIndex !== -1) {
+      const defaultProj = projects[defaultProjIndex];
+      const hasLifecycle = defaultProj.files.some(f => f.name === 'logical/application-lifecycle.yaml');
+      const hasCorruption = defaultProj.files.some(f => f.content.includes('name: - { name') || f.content.includes('identifier: - { name'));
+      const hasUpdatedDict = defaultProj.files.some(f => f.name === 'standardization/dictionary.yaml' && f.content.includes('생명주기'));
+      if (!hasLifecycle || hasCorruption || !hasUpdatedDict) {
+        const upgradedDefault = initializeDefaultProject()[0];
+        projects[defaultProjIndex] = upgradedDefault;
+        saveProjects(projects);
+      }
+    }
+    
+    return projects;
   } catch (e) {
     console.error('Failed to load projects from localStorage', e);
     return initializeDefaultProject();
@@ -80,14 +130,62 @@ export function initializeDefaultProject(): Project[] {
   const defaultProject: Project = {
     id: 'proj_default',
     name: 'QVI 이용자 관리 모델',
-    activeFileName: 'qvi-user-logical.yaml',
+    activeFileName: 'conceptual/model.yaml',
     files: [
       {
-        name: 'qvi-user-logical.yaml',
-        content: DEFAULT_MODEL_YAML,
+        name: 'dbproject.yaml',
+        content: DEFAULT_PROJECT_CONFIG_YAML,
       },
       {
-        name: 'vlei_qvi_db_oracle.sql',
+        name: 'conceptual/model.yaml',
+        content: DEFAULT_CONCEPTUAL_YAML,
+      },
+      {
+        name: 'logical/user.yaml',
+        content: DEFAULT_LOGICAL_YAML,
+      },
+      {
+        name: 'logical/user-account.yaml',
+        content: DEFAULT_USER_ACCOUNT_LOGICAL_YAML,
+      },
+      {
+        name: 'logical/keri-wallet.yaml',
+        content: DEFAULT_KERI_WALLET_LOGICAL_YAML,
+      },
+      {
+        name: 'logical/application-lifecycle.yaml',
+        content: DEFAULT_APPLICATION_LIFECYCLE_LOGICAL_YAML,
+      },
+      {
+        name: 'logical/billing-payment-point.yaml',
+        content: DEFAULT_BILLING_PAYMENT_POINT_LOGICAL_YAML,
+      },
+      {
+        name: 'logical/integration-audit-notification.yaml',
+        content: DEFAULT_INTEGRATION_AUDIT_NOTIFICATION_LOGICAL_YAML,
+      },
+      {
+        name: 'logical/portal-content.yaml',
+        content: DEFAULT_PORTAL_CONTENT_LOGICAL_YAML,
+      },
+      {
+        name: 'logical/identifier.yaml',
+        content: DEFAULT_IDENTIFIER_LOGICAL_YAML,
+      },
+      {
+        name: 'physical/overrides.yaml',
+        content: DEFAULT_OVERRIDES_YAML,
+      },
+      {
+        name: 'standardization/dictionary.yaml',
+        content: DEFAULT_DICTIONARY_YAML,
+      },
+      {
+        name: 'standardization/domains.yaml',
+        content: DEFAULT_DOMAINS_YAML,
+      },
+      {
+        name: 'output/schema.sql',
         content: SAMPLE_SQL_CONTENT,
       }
     ]
@@ -102,17 +200,57 @@ export function createProject(name: string): Project {
   const newProj: Project = {
     id: `proj_${Date.now()}`,
     name: name,
-    activeFileName: 'new-model.yaml',
+    activeFileName: 'conceptual/model.yaml',
     files: [
       {
-        name: 'new-model.yaml',
-        content: `subject_area: ${name}
-notation: Barker logical model
+        name: 'dbproject.yaml',
+        content: `project_name: ${name}
+version: 1.0.0
+target_db: POSTGRESQL
+subtype_strategy: ROLL_UP
+naming_case: SNAKE_CASE
+`,
+      },
+      {
+        name: 'conceptual/model.yaml',
+        content: `subject_area: ${name} 개념 모델
+version: 0.1
+status: draft
+modeling_level: conceptual
+entities: []
+relationships: []
+`,
+      },
+      {
+        name: 'logical/model.yaml',
+        content: `subject_area: ${name} 상세 논리 모델
+notation: Barker-style nested subtype
 version: 0.1
 status: draft
 entities: []
 relationships: []
-`
+`,
+      },
+      {
+        name: 'physical/overrides.yaml',
+        content: `table_overrides: []
+`,
+      },
+      {
+        name: 'standardization/dictionary.yaml',
+        content: `words: []
+terms: []
+`,
+      },
+      {
+        name: 'standardization/domains.yaml',
+        content: `domains: []
+`,
+      },
+      {
+        name: 'output/schema.sql',
+        content: `-- SQL DDL Output will go here
+`,
       }
     ]
   };

@@ -1,0 +1,345 @@
+subject_area: QVI 포탈콘텐츠
+notation: Barker logical model
+version: 0.1
+status: draft
+source_context:
+  - doc/DB설계/QVI 개념 모델.md
+  - doc/DB설계/QVI 상세 논리 모델 작성 기준.md
+artifact_policy: YAML only. SVG 산출물은 생성하지 않는다.
+
+relationship_notation:
+  participation:
+    optional_one: "0..1"
+    mandatory_one: "1..1"
+    optional_many: "0..M"
+    mandatory_many: "1..M"
+  identifying_rule: 부모 FK가 자식 PK에 포함되면 식별관계이다.
+  non_identifying_rule: FK가 필수라도 자식 PK에 포함되지 않으면 비식별 참조 관계이다.
+
+modeling_principles:
+  - 공지사항, 자료실, FAQ, 문의는 별도 엔터티로 분리하지 않고 게시판유형코드와 게시물유형코드로 구분한다.
+  - 자료실 파일은 게시물과 첨부파일의 관계로 표현한다.
+  - 문의 답변은 게시물 본문에 섞지 않고 게시물답변 엔터티로 분리한다.
+  - FAQ는 게시물 본문에 질문과 답변을 함께 저장할 수 있고, 운영 정책상 별도 답변 이력이 필요하면 게시물답변을 사용할 수 있다.
+  - 게시물의 게시, 숨김, 폐기, 공개범위 변경은 게시물상태코드와 감사로그로 추적한다.
+  - 조회 이력과 다운로드 이력은 통계와 감사 요구에 대응하기 위해 포탈콘텐츠 영역에서 관리한다.
+  - 첨부파일 원본 메타데이터는 공통 첨부파일 엔터티를 재사용한다.
+
+entities:
+  - name: 게시판
+    type: entity
+    identifier: 게시판번호
+    attributes:
+      - { name: 게시판번호, domain: 게시판번호, required: true, identifier: true }
+      - { name: 상위게시판번호, domain: 게시판번호, required: false, foreign_key: true }
+      - { name: 게시판유형코드, domain: 게시판유형코드, required: true }
+      - { name: 게시판상태코드, domain: 게시판상태코드, required: true }
+      - { name: 게시판명, domain: 명칭, required: true }
+      - { name: 게시판설명내용, domain: 내용, required: false }
+      - { name: 공개범위코드, domain: 공개범위코드, required: true }
+      - { name: 익명작성허용여부, domain: 여부, required: true }
+      - { name: 답변사용여부, domain: 여부, required: true }
+      - { name: 첨부사용여부, domain: 여부, required: true }
+      - { name: 표시순번, domain: 순번, required: true }
+      - { name: 등록자이용자번호, domain: 이용자번호, required: false, foreign_key: true }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: 게시물
+    type: entity
+    identifier: 게시물번호
+    attributes:
+      - { name: 게시물번호, domain: 게시물번호, required: true, identifier: true }
+      - { name: 게시판번호, domain: 게시판번호, required: true, foreign_key: true }
+      - { name: 게시물유형코드, domain: 게시물유형코드, required: true }
+      - { name: 게시물상태코드, domain: 게시물상태코드, required: true }
+      - { name: 공개범위코드, domain: 공개범위코드, required: true }
+      - { name: 문의처리상태코드, domain: 문의처리상태코드, required: false }
+      - { name: 제목명, domain: 명칭, required: true }
+      - { name: 본문내용, domain: 내용, required: true }
+      - { name: 작성자이용자번호, domain: 이용자번호, required: true, foreign_key: true }
+      - { name: 수정자이용자번호, domain: 이용자번호, required: false, foreign_key: true }
+      - { name: 게시승인자이용자번호, domain: 이용자번호, required: false, foreign_key: true }
+      - { name: 중요공지여부, domain: 여부, required: true }
+      - { name: 비밀글여부, domain: 여부, required: true }
+      - { name: 조회수, domain: 건수, required: true }
+      - { name: 게시시작일시, domain: 일시, required: false }
+      - { name: 게시종료일시, domain: 일시, required: false }
+      - { name: 게시일시, domain: 일시, required: false }
+      - { name: 작성일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+      - { name: 삭제일시, domain: 일시, required: false }
+
+  - name: 게시물답변
+    type: entity
+    identifier: 답변번호
+    attributes:
+      - { name: 답변번호, domain: 답변번호, required: true, identifier: true }
+      - { name: 게시물번호, domain: 게시물번호, required: true, foreign_key: true }
+      - { name: 답변상태코드, domain: 답변상태코드, required: true }
+      - { name: 답변내용, domain: 내용, required: true }
+      - { name: 작성자이용자번호, domain: 이용자번호, required: true, foreign_key: true }
+      - { name: 수정자이용자번호, domain: 이용자번호, required: false, foreign_key: true }
+      - { name: 채택여부, domain: 여부, required: true }
+      - { name: 작성일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+      - { name: 삭제일시, domain: 일시, required: false }
+
+  - name: 게시물첨부파일
+    type: relationship_entity
+    identifier: [게시물번호, 첨부파일번호]
+    attributes:
+      - { name: 게시물번호, domain: 게시물번호, required: true, identifier: true, foreign_key: true }
+      - { name: 첨부파일번호, domain: 첨부파일번호, required: true, identifier: true, foreign_key: true }
+      - { name: 첨부파일유형코드, domain: 첨부파일유형코드, required: true }
+      - { name: 표시순번, domain: 순번, required: true }
+      - { name: 다운로드허용여부, domain: 여부, required: true }
+      - { name: 다운로드횟수, domain: 건수, required: true }
+      - { name: 검증상태코드, domain: 첨부파일검증상태코드, required: true }
+      - { name: 검증자이용자번호, domain: 이용자번호, required: false, foreign_key: true }
+      - { name: 검증일시, domain: 일시, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+
+  - name: 게시물조회이력
+    type: log_entity
+    identifier: 조회이력번호
+    attributes:
+      - { name: 조회이력번호, domain: 이력번호, required: true, identifier: true }
+      - { name: 게시물번호, domain: 게시물번호, required: true, foreign_key: true }
+      - { name: 조회자이용자번호, domain: 이용자번호, required: false, foreign_key: true }
+      - { name: 조회일시, domain: 일시, required: true }
+      - { name: IP주소값, domain: IP주소, required: false }
+      - { name: 사용자에이전트값, domain: 내용, required: false }
+
+  - name: 첨부파일다운로드이력
+    type: log_entity
+    identifier: 다운로드이력번호
+    attributes:
+      - { name: 다운로드이력번호, domain: 이력번호, required: true, identifier: true }
+      - { name: 게시물번호, domain: 게시물번호, required: true, foreign_key: true }
+      - { name: 첨부파일번호, domain: 첨부파일번호, required: true, foreign_key: true }
+      - { name: 다운로드자이용자번호, domain: 이용자번호, required: false, foreign_key: true }
+      - { name: 다운로드일시, domain: 일시, required: true }
+      - { name: IP주소값, domain: IP주소, required: false }
+      - { name: 사용자에이전트값, domain: 내용, required: false }
+
+external_entities:
+  - { name: 이용자, owner: QVI 이용자/가입/계정 }
+  - { name: 첨부파일, owner: QVI 공통 첨부파일, current_source: QVI 발급신청/생명주기 }
+  - { name: 감사로그, owner: QVI 외부연계/감사/알림 }
+
+relationships:
+  - id: R-CON-001
+    parent: 게시판
+    child: 게시판
+    parent_to_child: 포함한다
+    child_to_parent: 속한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [상위게시판번호]
+    recursive: true
+    barker_sentence: 각 게시판은 하위 게시판을 0개 이상 포함할 수 있다. 각 게시판은 상위 게시판이 없거나 하나일 수 있다.
+  - id: R-CON-002
+    parent: 이용자
+    child: 게시판
+    parent_to_child: 등록한다
+    child_to_parent: 등록된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [등록자이용자번호]
+    barker_sentence: 각 이용자는 게시판을 0개 이상 등록할 수 있다. 각 게시판은 등록자가 없거나 하나일 수 있다.
+  - id: R-CON-003
+    parent: 게시판
+    child: 게시물
+    parent_to_child: 가진다
+    child_to_parent: 속한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [게시판번호]
+    barker_sentence: 각 게시판은 게시물을 0개 이상 가진다. 각 게시물은 반드시 하나의 게시판에 속한다.
+  - id: R-CON-004
+    parent: 이용자
+    child: 게시물
+    parent_to_child: 작성한다
+    child_to_parent: 작성된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [작성자이용자번호]
+    barker_sentence: 각 이용자는 게시물을 0개 이상 작성할 수 있다. 각 게시물은 반드시 하나의 작성자 이용자를 가진다.
+  - id: R-CON-005
+    parent: 이용자
+    child: 게시물
+    parent_to_child: 수정한다
+    child_to_parent: 수정된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [수정자이용자번호]
+    barker_sentence: 각 이용자는 게시물을 0개 이상 수정할 수 있다. 각 게시물은 수정자가 없거나 하나일 수 있다.
+  - id: R-CON-006
+    parent: 이용자
+    child: 게시물
+    parent_to_child: 게시승인한다
+    child_to_parent: 게시승인된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [게시승인자이용자번호]
+    barker_sentence: 각 이용자는 게시물을 0개 이상 게시승인할 수 있다. 각 게시물은 게시승인자가 없거나 하나일 수 있다.
+  - id: R-CON-007
+    parent: 게시물
+    child: 게시물답변
+    parent_to_child: 가진다
+    child_to_parent: 속한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [게시물번호]
+    barker_sentence: 각 게시물은 답변을 0개 이상 가질 수 있다. 각 게시물답변은 반드시 하나의 게시물에 속한다.
+  - id: R-CON-008
+    parent: 이용자
+    child: 게시물답변
+    parent_to_child: 작성한다
+    child_to_parent: 작성된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [작성자이용자번호]
+    barker_sentence: 각 이용자는 게시물답변을 0개 이상 작성할 수 있다. 각 게시물답변은 반드시 하나의 작성자 이용자를 가진다.
+  - id: R-CON-009
+    parent: 이용자
+    child: 게시물답변
+    parent_to_child: 수정한다
+    child_to_parent: 수정된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [수정자이용자번호]
+    barker_sentence: 각 이용자는 게시물답변을 0개 이상 수정할 수 있다. 각 게시물답변은 수정자가 없거나 하나일 수 있다.
+  - id: R-CON-010
+    parent: 게시물
+    child: 게시물첨부파일
+    parent_to_child: 가진다
+    child_to_parent: 속한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: true
+    fk_attributes: [게시물번호]
+    barker_sentence: 각 게시물은 첨부파일 관계를 0개 이상 가질 수 있다. 각 게시물첨부파일은 반드시 하나의 게시물에 속한다.
+  - id: R-CON-011
+    parent: 첨부파일
+    child: 게시물첨부파일
+    parent_to_child: 첨부된다
+    child_to_parent: 연결된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: true
+    fk_attributes: [첨부파일번호]
+    barker_sentence: 각 첨부파일은 게시물에 0회 이상 연결될 수 있다. 각 게시물첨부파일은 반드시 하나의 첨부파일을 가진다.
+  - id: R-CON-012
+    parent: 이용자
+    child: 게시물첨부파일
+    parent_to_child: 검증한다
+    child_to_parent: 검증된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [검증자이용자번호]
+    barker_sentence: 각 이용자는 게시물첨부파일을 0개 이상 검증할 수 있다. 각 게시물첨부파일은 검증자가 없거나 하나일 수 있다.
+  - id: R-CON-013
+    parent: 게시물
+    child: 게시물조회이력
+    parent_to_child: 조회된다
+    child_to_parent: 조회대상이다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [게시물번호]
+    barker_sentence: 각 게시물은 조회 이력을 0개 이상 가질 수 있다. 각 게시물조회이력은 반드시 하나의 게시물에 대한 조회이다.
+  - id: R-CON-014
+    parent: 이용자
+    child: 게시물조회이력
+    parent_to_child: 조회한다
+    child_to_parent: 조회된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [조회자이용자번호]
+    barker_sentence: 각 이용자는 게시물을 0회 이상 조회할 수 있다. 각 게시물조회이력은 로그인 이용자가 없거나 하나일 수 있다.
+  - id: R-CON-015
+    parent: 게시물첨부파일
+    child: 첨부파일다운로드이력
+    parent_to_child: 다운로드된다
+    child_to_parent: 다운로드대상이다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [게시물번호, 첨부파일번호]
+    barker_sentence: 각 게시물첨부파일은 다운로드 이력을 0개 이상 가질 수 있다. 각 첨부파일다운로드이력은 반드시 하나의 게시물첨부파일에 대한 다운로드이다.
+  - id: R-CON-016
+    parent: 이용자
+    child: 첨부파일다운로드이력
+    parent_to_child: 다운로드한다
+    child_to_parent: 다운로드된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [다운로드자이용자번호]
+    barker_sentence: 각 이용자는 첨부파일을 0회 이상 다운로드할 수 있다. 각 첨부파일다운로드이력은 로그인 이용자가 없거나 하나일 수 있다.
+
+business_rules:
+  - 게시판유형코드가 DOWNLOAD인 게시판은 첨부사용여부가 Y여야 한다.
+  - 게시판유형코드가 INQUIRY인 게시판은 답변사용여부가 Y여야 한다.
+  - 게시물유형코드가 INQUIRY인 게시물은 문의처리상태코드를 가져야 한다.
+  - 게시물상태코드가 PUBLISHED인 게시물은 게시일시를 가져야 한다.
+  - 게시물상태코드가 DELETED인 게시물은 삭제일시를 가져야 한다.
+  - 비밀글여부가 Y인 게시물은 작성자, 답변 담당자, 권한 있는 QVI직원만 조회할 수 있다.
+  - 게시물첨부파일의 다운로드허용여부가 N이면 다운로드 이력을 생성하지 않고 다운로드를 차단한다.
+  - 게시물첨부파일의 검증상태코드가 REJECTED이면 게시물 공개 전에 교체 또는 삭제해야 한다.
+  - 조회수와 다운로드횟수는 이력에서 재집계 가능해야 한다.
+
+code_groups:
+  게시판유형코드: [NOTICE, DOWNLOAD, FAQ, INQUIRY]
+  게시판상태코드: [ACTIVE, INACTIVE, CLOSED]
+  게시물유형코드: [NOTICE, DOWNLOAD, FAQ, INQUIRY, GUIDE]
+  게시물상태코드: [DRAFT, REQUESTED, PUBLISHED, HIDDEN, DELETED, REJECTED]
+  공개범위코드: [PUBLIC, MEMBER_ONLY, LE_MEMBER_ONLY, QVI_ONLY, PRIVATE]
+  문의처리상태코드: [REQUESTED, RECEIVED, ANSWERING, ANSWERED, CLOSED, REJECTED]
+  답변상태코드: [DRAFT, PUBLISHED, HIDDEN, DELETED]
+  첨부파일유형코드: [CONTENT, DOWNLOAD, IMAGE, FORM, ETC]
+  첨부파일검증상태코드: [NOT_VERIFIED, VERIFIED, REJECTED]
+
+standard_domains:
+  게시판번호: { type: string, length: 36, description: UUID 기준 }
+  게시물번호: { type: string, length: 36, description: UUID 기준 }
+  답변번호: { type: string, length: 36, description: UUID 기준 }
+  첨부파일번호: { type: string, length: 36, description: UUID 기준 }
+  이력번호: { type: string, length: 36, description: UUID 기준 }
+  이용자번호: { type: string, length: 36, description: 이용자 식별자 }
+  명칭: { type: string, length: 500, description: 제목, 게시판명 등 }
+  내용: { type: clob, description: 본문, 답변, 사용자 에이전트 등 }
+  여부: { type: string, length: 1, description: Y/N }
+  순번: { type: number, precision: 10, description: 표시 순서 }
+  건수: { type: number, precision: 19, description: 조회수, 다운로드횟수 }
+  IP주소: { type: string, length: 45, description: IPv4 또는 IPv6 }
+  일시: { type: timestamp, description: 발생 시각 }

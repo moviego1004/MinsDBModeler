@@ -1,9 +1,10 @@
-subject_area: QVI 이용자/가입/계정
+subject_area: QVI 발급신청/생명주기
 notation: Barker logical model
 version: 0.1
 status: draft
-source_document: doc/DB설계/QVI 이용자 가입 계정 논리 모델.md
+source_document: doc/DB설계/QVI 발급신청 생명주기 논리 모델.md
 standard_document: doc/DB설계/QVI 상세 논리 모델 작성 기준.md
+baseline_conceptual_model: doc/DB설계/QVI 개념 모델.md
 
 relationship_notation:
   participation:
@@ -14,313 +15,583 @@ relationship_notation:
   identifying_rule: 부모 FK가 자식 PK에 포함되면 식별관계이다.
   non_identifying_rule: FK가 필수라도 자식 PK에 포함되지 않으면 비식별 참조 관계이다.
 
-subtype_sets:
-  - id: ST-UAC-001
-    supertype: 이용자
-    subtypes: [QVI사업자, QVI직원, 회원, 외부기관]
-    total: true
-    disjoint: true
-    discriminator: 이용자구분코드
-    description: 모든 이용자는 네 서브타입 중 정확히 하나에 속한다.
+entities:
+  - name: 발급신청
+    type: supertype
+    identifier: 신청번호
+    subtype_set:
+      total: true
+      disjoint: true
+      discriminator: 신청유형코드
+      subtypes: [법인vLEI발급신청, OOR발급신청, ECR발급신청]
+    attributes:
+      - { name: 신청번호, domain: 신청번호, required: true, identifier: true }
+      - { name: 신청유형코드, domain: 발급신청유형코드, required: true }
+      - { name: 신청상태코드, domain: 발급신청상태코드, required: true }
+      - { name: 신청자이용자번호, domain: 이용자번호, required: true, foreign_key: true }
+      - { name: 처리담당자이용자번호, domain: 이용자번호, required: false, foreign_key: true }
+      - { name: 결과자격증명번호, domain: ACDC자격증명번호, required: false, foreign_key: true }
+      - { name: 신청제목명, domain: 명칭, required: false }
+      - { name: 신청사유내용, domain: 내용, required: false }
+      - { name: 신청일시, domain: 일시, required: true }
+      - { name: 접수일시, domain: 일시, required: false }
+      - { name: 완료일시, domain: 일시, required: false }
+      - { name: 반려사유내용, domain: 내용, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
 
-  - id: ST-UAC-002
-    supertype: 회원
-    subtypes: [법인회원, 개인회원]
-    total: true
-    disjoint: true
-    discriminator: 회원구분코드
-    description: 모든 회원은 법인회원 또는 개인회원 중 정확히 하나에 속한다.
+  - name: 법인vLEI발급신청
+    type: subtype
+    supertype: 발급신청
+    identifier: 신청번호
+    attributes:
+      - { name: 신청번호, domain: 신청번호, required: true, identifier: true, foreign_key: true }
+      - { name: 법인회원이용자번호, domain: 이용자번호, required: true, foreign_key: true }
+      - { name: 법인KERI식별자번호, domain: KERI식별자번호, required: false, foreign_key: true }
+      - { name: QVI발급자KERI식별자번호, domain: KERI식별자번호, required: false, foreign_key: true }
+      - { name: 신청시점LEI, domain: LEI, required: true }
+      - { name: 신청시점법인명, domain: 명칭, required: true }
+      - { name: 신청시점국가코드, domain: 국가코드, required: false }
+      - { name: LEI상태코드, domain: LEI상태코드, required: false }
+      - { name: 법인확인여부, domain: 여부, required: true }
 
-  - id: ST-UAC-003
-    supertype: 개인회원
-    subtypes: [법인소속개인회원, 일반개인회원]
-    total: true
-    disjoint: true
-    discriminator: 개인회원구분코드
-    description: 모든 개인회원은 법인소속개인회원 또는 일반개인회원 중 정확히 하나에 속한다.
+  - name: OOR발급신청
+    type: subtype
+    supertype: 발급신청
+    identifier: 신청번호
+    attributes:
+      - { name: 신청번호, domain: 신청번호, required: true, identifier: true, foreign_key: true }
+      - { name: 법인회원이용자번호, domain: 이용자번호, required: true, foreign_key: true }
+      - { name: 대상법인소속개인회원이용자번호, domain: 이용자번호, required: true, foreign_key: true }
+      - { name: 기준LEvLEI자격증명번호, domain: ACDC자격증명번호, required: false, foreign_key: true }
+      - { name: 수신자KERI식별자번호, domain: KERI식별자번호, required: false, foreign_key: true }
+      - { name: 공식역할명, domain: 명칭, required: true }
+      - { name: 역할설명내용, domain: 내용, required: false }
+      - { name: 소속확인여부, domain: 여부, required: true }
+
+  - name: ECR발급신청
+    type: subtype
+    supertype: 발급신청
+    identifier: 신청번호
+    attributes:
+      - { name: 신청번호, domain: 신청번호, required: true, identifier: true, foreign_key: true }
+      - { name: 법인회원이용자번호, domain: 이용자번호, required: true, foreign_key: true }
+      - { name: 대상법인소속개인회원이용자번호, domain: 이용자번호, required: true, foreign_key: true }
+      - { name: 기준OOR자격증명번호, domain: ACDC자격증명번호, required: false, foreign_key: true }
+      - { name: LE발급자KERI식별자번호, domain: KERI식별자번호, required: false, foreign_key: true }
+      - { name: 수신자KERI식별자번호, domain: KERI식별자번호, required: false, foreign_key: true }
+      - { name: 업무맥락명, domain: 명칭, required: true }
+      - { name: 역할명, domain: 명칭, required: true }
+      - { name: 업무맥락설명내용, domain: 내용, required: false }
+
+  - name: 발급신청단계이력
+    type: entity
+    identifier: 발급신청단계이력번호
+    attributes:
+      - { name: 발급신청단계이력번호, domain: 이력번호, required: true, identifier: true }
+      - { name: 신청번호, domain: 신청번호, required: true, foreign_key: true }
+      - { name: 선행발급신청단계이력번호, domain: 이력번호, required: false, foreign_key: true }
+      - { name: 단계구분코드, domain: 발급신청단계구분코드, required: true }
+      - { name: 단계상태코드, domain: 단계상태코드, required: true }
+      - { name: 처리자이용자번호, domain: 이용자번호, required: false, foreign_key: true }
+      - { name: 시작일시, domain: 일시, required: false }
+      - { name: 처리일시, domain: 일시, required: true }
+      - { name: 종료일시, domain: 일시, required: false }
+      - { name: 처리내용, domain: 내용, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+
+  - name: 첨부파일
+    type: entity
+    identifier: 첨부파일번호
+    attributes:
+      - { name: 첨부파일번호, domain: 첨부파일번호, required: true, identifier: true }
+      - { name: 원본파일명, domain: 파일명, required: true }
+      - { name: 저장파일명, domain: 파일명, required: true }
+      - { name: 파일경로값, domain: 경로값, required: true }
+      - { name: MIME유형명, domain: 명칭, required: false }
+      - { name: 파일크기, domain: 건수, required: false }
+      - { name: 파일해시값, domain: 해시값, required: false }
+      - { name: 파일상태코드, domain: 첨부파일상태코드, required: true }
+      - { name: 업로드자이용자번호, domain: 이용자번호, required: false, foreign_key: true }
+      - { name: 업로드일시, domain: 일시, required: true }
+      - { name: 삭제일시, domain: 일시, required: false }
+
+  - name: 발급신청첨부파일
+    type: relationship_entity
+    identifier: [신청번호, 첨부파일번호]
+    attributes:
+      - { name: 신청번호, domain: 신청번호, required: true, identifier: true, foreign_key: true }
+      - { name: 첨부파일번호, domain: 첨부파일번호, required: true, identifier: true, foreign_key: true }
+      - { name: 첨부파일유형코드, domain: 첨부파일유형코드, required: true }
+      - { name: 첨부순번, domain: 순번, required: true }
+      - { name: 필수제출여부, domain: 여부, required: true }
+      - { name: 검증상태코드, domain: 첨부파일검증상태코드, required: true }
+      - { name: 검증자이용자번호, domain: 이용자번호, required: false, foreign_key: true }
+      - { name: 검증일시, domain: 일시, required: false }
+
+  - name: 자격증명생명주기신청
+    type: entity
+    identifier: 생명주기신청번호
+    attributes:
+      - { name: 생명주기신청번호, domain: 생명주기신청번호, required: true, identifier: true }
+      - { name: 대상자격증명번호, domain: ACDC자격증명번호, required: true, foreign_key: true }
+      - { name: 생명주기신청유형코드, domain: 생명주기신청유형코드, required: true }
+      - { name: 생명주기신청상태코드, domain: 생명주기신청상태코드, required: true }
+      - { name: 신청자이용자번호, domain: 이용자번호, required: true, foreign_key: true }
+      - { name: 처리담당자이용자번호, domain: 이용자번호, required: false, foreign_key: true }
+      - { name: 유발발급신청번호, domain: 신청번호, required: false, foreign_key: true }
+      - { name: 신청사유내용, domain: 내용, required: false }
+      - { name: 신청일시, domain: 일시, required: true }
+      - { name: 접수일시, domain: 일시, required: false }
+      - { name: 완료일시, domain: 일시, required: false }
+      - { name: 처리결과내용, domain: 내용, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+      - { name: 수정일시, domain: 일시, required: true }
+
+  - name: 자격증명생명주기신청단계이력
+    type: entity
+    identifier: 생명주기신청단계이력번호
+    attributes:
+      - { name: 생명주기신청단계이력번호, domain: 이력번호, required: true, identifier: true }
+      - { name: 생명주기신청번호, domain: 생명주기신청번호, required: true, foreign_key: true }
+      - { name: 선행생명주기신청단계이력번호, domain: 이력번호, required: false, foreign_key: true }
+      - { name: 단계구분코드, domain: 생명주기단계구분코드, required: true }
+      - { name: 단계상태코드, domain: 단계상태코드, required: true }
+      - { name: 처리자이용자번호, domain: 이용자번호, required: false, foreign_key: true }
+      - { name: 시작일시, domain: 일시, required: false }
+      - { name: 처리일시, domain: 일시, required: true }
+      - { name: 종료일시, domain: 일시, required: false }
+      - { name: 처리내용, domain: 내용, required: false }
+      - { name: 등록일시, domain: 일시, required: true }
+
+  - name: 생명주기신청첨부파일
+    type: relationship_entity
+    identifier: [생명주기신청번호, 첨부파일번호]
+    attributes:
+      - { name: 생명주기신청번호, domain: 생명주기신청번호, required: true, identifier: true, foreign_key: true }
+      - { name: 첨부파일번호, domain: 첨부파일번호, required: true, identifier: true, foreign_key: true }
+      - { name: 첨부파일유형코드, domain: 첨부파일유형코드, required: true }
+      - { name: 첨부순번, domain: 순번, required: true }
+      - { name: 필수제출여부, domain: 여부, required: true }
+      - { name: 검증상태코드, domain: 첨부파일검증상태코드, required: true }
+      - { name: 검증자이용자번호, domain: 이용자번호, required: false, foreign_key: true }
+      - { name: 검증일시, domain: 일시, required: false }
+
+external_entities:
+  - { name: 이용자, owner: QVI 이용자/가입/계정 }
+  - { name: KERI식별자, owner: QVI KERI/지갑 }
+  - { name: ACDC자격증명, owner: QVI KERI/지갑 }
+  - { name: 과금, owner: QVI 과금/결제/포인트 }
+  - { name: 연계작업, owner: QVI 외부연계/감사/알림 }
 
 relationships:
-  - id: R-UAC-001
+  - id: R-APP-001
     parent: 이용자
-    child: QVI사업자
-    parent_to_child: 분류된다
-    child_to_parent: 상속한다
-    cardinality: one_to_one
-    parent_participation: "0..1"
-    child_participation: "1..1"
-    identifying: true
-    fk_attributes: [이용자번호]
-    barker_sentence: 각 이용자는 QVI사업자일 수 있다. 각 QVI사업자는 반드시 하나의 이용자이다.
-
-  - id: R-UAC-002
-    parent: 이용자
-    child: QVI직원
-    parent_to_child: 분류된다
-    child_to_parent: 상속한다
-    cardinality: one_to_one
-    parent_participation: "0..1"
-    child_participation: "1..1"
-    identifying: true
-    fk_attributes: [이용자번호]
-    barker_sentence: 각 이용자는 QVI직원일 수 있다. 각 QVI직원은 반드시 하나의 이용자이다.
-
-  - id: R-UAC-003
-    parent: 이용자
-    child: 회원
-    parent_to_child: 분류된다
-    child_to_parent: 상속한다
-    cardinality: one_to_one
-    parent_participation: "0..1"
-    child_participation: "1..1"
-    identifying: true
-    fk_attributes: [이용자번호]
-    barker_sentence: 각 이용자는 회원일 수 있다. 각 회원은 반드시 하나의 이용자이다.
-
-  - id: R-UAC-004
-    parent: 이용자
-    child: 외부기관
-    parent_to_child: 분류된다
-    child_to_parent: 상속한다
-    cardinality: one_to_one
-    parent_participation: "0..1"
-    child_participation: "1..1"
-    identifying: true
-    fk_attributes: [이용자번호]
-    barker_sentence: 각 이용자는 외부기관일 수 있다. 각 외부기관은 반드시 하나의 이용자이다.
-
-  - id: R-UAC-005
-    parent: 회원
-    child: 법인회원
-    parent_to_child: 분류된다
-    child_to_parent: 상속한다
-    cardinality: one_to_one
-    parent_participation: "0..1"
-    child_participation: "1..1"
-    identifying: true
-    fk_attributes: [이용자번호]
-    barker_sentence: 각 회원은 법인회원일 수 있다. 각 법인회원은 반드시 하나의 회원이다.
-
-  - id: R-UAC-006
-    parent: 회원
-    child: 개인회원
-    parent_to_child: 분류된다
-    child_to_parent: 상속한다
-    cardinality: one_to_one
-    parent_participation: "0..1"
-    child_participation: "1..1"
-    identifying: true
-    fk_attributes: [이용자번호]
-    barker_sentence: 각 회원은 개인회원일 수 있다. 각 개인회원은 반드시 하나의 회원이다.
-
-  - id: R-UAC-007
-    parent: 개인회원
-    child: 법인소속개인회원
-    parent_to_child: 분류된다
-    child_to_parent: 상속한다
-    cardinality: one_to_one
-    parent_participation: "0..1"
-    child_participation: "1..1"
-    identifying: true
-    fk_attributes: [이용자번호]
-    barker_sentence: 각 개인회원은 법인소속개인회원일 수 있다. 각 법인소속개인회원은 반드시 하나의 개인회원이다.
-
-  - id: R-UAC-008
-    parent: 개인회원
-    child: 일반개인회원
-    parent_to_child: 분류된다
-    child_to_parent: 상속한다
-    cardinality: one_to_one
-    parent_participation: "0..1"
-    child_participation: "1..1"
-    identifying: true
-    fk_attributes: [이용자번호]
-    barker_sentence: 각 개인회원은 일반개인회원일 수 있다. 각 일반개인회원은 반드시 하나의 개인회원이다.
-
-  - id: R-UAC-009
-    parent: 이용자
-    child: 이용자계정
-    parent_to_child: 가진다
-    child_to_parent: 속한다
-    cardinality: one_to_many
+    child: 발급신청
+    parent_to_child: 신청한다
+    child_to_parent: 신청된다
+    cardinality: "1:M"
     parent_participation: "0..M"
     child_participation: "1..1"
     identifying: false
-    fk_attributes: [이용자번호]
-    barker_sentence: 각 이용자는 이용자계정을 0개 이상 가질 수 있다. 각 이용자계정은 반드시 하나의 이용자에 속한다.
-
-  - id: R-UAC-010
+    fk_attributes: [신청자이용자번호]
+    barker_sentence: 각 이용자는 발급신청을 0개 이상 신청할 수 있다. 각 발급신청은 반드시 하나의 신청자 이용자를 가진다.
+  - id: R-APP-002
     parent: 이용자
-    child: 회원가입신청
-    parent_to_child: 생성결과가 된다
-    child_to_parent: 생성한다
-    cardinality: one_to_one
-    parent_participation: "0..1"
+    child: 발급신청
+    parent_to_child: 처리담당한다
+    child_to_parent: 처리담당된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
     child_participation: "0..1"
     identifying: false
-    fk_attributes: [생성이용자번호]
-    barker_sentence: 각 이용자는 하나의 회원가입신청 결과일 수 있다. 각 회원가입신청은 승인 전에는 생성이용자가 없고 승인 후 하나의 이용자를 생성할 수 있다.
-
-  - id: R-UAC-011
-    parent: 회원가입신청
-    child: 회원가입신청단계이력
+    fk_attributes: [처리담당자이용자번호]
+    barker_sentence: 각 이용자는 발급신청을 0개 이상 처리담당할 수 있다. 각 발급신청은 처리담당자가 없거나 하나일 수 있다.
+  - id: R-APP-003
+    parent: 발급신청
+    child: 법인vLEI발급신청
+    parent_to_child: 서브타입이다
+    child_to_parent: 상속한다
+    cardinality: "1:1"
+    parent_participation: "0..1"
+    child_participation: "1..1"
+    identifying: true
+    fk_attributes: [신청번호]
+    barker_sentence: 각 발급신청은 법인vLEI발급신청일 수도 있다. 각 법인vLEI발급신청은 반드시 하나의 발급신청에 속한다.
+  - id: R-APP-004
+    parent: 발급신청
+    child: OOR발급신청
+    parent_to_child: 서브타입이다
+    child_to_parent: 상속한다
+    cardinality: "1:1"
+    parent_participation: "0..1"
+    child_participation: "1..1"
+    identifying: true
+    fk_attributes: [신청번호]
+    barker_sentence: 각 발급신청은 OOR발급신청일 수도 있다. 각 OOR발급신청은 반드시 하나의 발급신청에 속한다.
+  - id: R-APP-005
+    parent: 발급신청
+    child: ECR발급신청
+    parent_to_child: 서브타입이다
+    child_to_parent: 상속한다
+    cardinality: "1:1"
+    parent_participation: "0..1"
+    child_participation: "1..1"
+    identifying: true
+    fk_attributes: [신청번호]
+    barker_sentence: 각 발급신청은 ECR발급신청일 수도 있다. 각 ECR발급신청은 반드시 하나의 발급신청에 속한다.
+  - id: R-APP-006
+    parent: 발급신청
+    child: 발급신청단계이력
     parent_to_child: 가진다
     child_to_parent: 속한다
-    cardinality: one_to_many
+    cardinality: "1:M"
     parent_participation: "1..M"
     child_participation: "1..1"
     identifying: false
-    fk_attributes: [가입신청번호]
-    barker_sentence: 각 회원가입신청은 하나 이상의 단계 이력을 가진다. 각 회원가입신청단계이력은 반드시 하나의 회원가입신청에 속한다.
-
-  - id: R-UAC-012
-    parent: 회원가입신청단계이력
-    child: 회원가입신청단계이력
+    fk_attributes: [신청번호]
+    barker_sentence: 각 발급신청은 하나 이상의 단계 이력을 가진다. 각 발급신청단계이력은 반드시 하나의 발급신청에 속한다.
+  - id: R-APP-007
+    parent: 발급신청단계이력
+    child: 발급신청단계이력
     parent_to_child: 선행한다
     child_to_parent: 후행한다
-    cardinality: one_to_many
+    cardinality: "1:M"
     parent_participation: "0..M"
     child_participation: "0..1"
     identifying: false
-    fk_attributes: [선행가입신청단계이력번호]
+    fk_attributes: [선행발급신청단계이력번호]
     recursive: true
-    barker_sentence: 각 단계 이력은 후행 단계 이력을 0개 이상 가질 수 있다. 각 단계 이력은 선행 단계 이력을 0개 또는 1개 가질 수 있다.
-
-  - id: R-UAC-013
+    barker_sentence: 각 단계 이력은 후행 단계 이력을 0개 이상 가질 수 있다. 각 단계 이력은 선행 단계 이력이 없거나 하나일 수 있다.
+  - id: R-APP-008
     parent: 이용자
-    child: 회원가입신청단계이력
+    child: 발급신청단계이력
     parent_to_child: 처리한다
     child_to_parent: 처리된다
-    cardinality: one_to_many
+    cardinality: "1:M"
     parent_participation: "0..M"
     child_participation: "0..1"
     identifying: false
     fk_attributes: [처리자이용자번호]
-    barker_sentence: 각 이용자는 단계 이력을 0개 이상 처리할 수 있다. 각 단계 이력은 처리자가 없거나 하나의 이용자에게 처리된다.
-
-  - id: R-UAC-014
-    parent: QVI직원
-    child: QVI직원역할부여이력
+    barker_sentence: 각 이용자는 단계 이력을 0개 이상 처리할 수 있다. 각 단계 이력은 처리자가 없거나 하나일 수 있다.
+  - id: R-APP-009
+    parent: 발급신청
+    child: 발급신청첨부파일
     parent_to_child: 가진다
-    child_to_parent: 부여된다
-    cardinality: one_to_many
-    parent_participation: "0..M"
-    child_participation: "1..1"
-    identifying: false
-    fk_attributes: [이용자번호]
-    barker_sentence: 각 QVI직원은 역할 부여 이력을 0개 이상 가질 수 있다. 각 역할 부여 이력은 반드시 하나의 QVI직원에 대한 이력이다.
-
-  - id: R-UAC-015
-    parent: 이용자
-    child: QVI직원역할부여이력
-    parent_to_child: 부여한다
-    child_to_parent: 부여받는다
-    cardinality: one_to_many
-    parent_participation: "0..M"
-    child_participation: "0..1"
-    identifying: false
-    fk_attributes: [역할부여자이용자번호]
-    barker_sentence: 각 이용자는 역할을 0회 이상 부여할 수 있다. 각 역할 부여 이력은 부여자가 없거나 하나의 이용자를 부여자로 가진다.
-
-  - id: R-UAC-016
-    parent: 이용자
-    child: QVI직원역할부여이력
-    parent_to_child: 회수한다
-    child_to_parent: 회수된다
-    cardinality: one_to_many
-    parent_participation: "0..M"
-    child_participation: "0..1"
-    identifying: false
-    fk_attributes: [역할회수자이용자번호]
-    barker_sentence: 각 이용자는 역할을 0회 이상 회수할 수 있다. 각 역할 부여 이력은 회수자가 없거나 하나의 이용자를 회수자로 가진다.
-
-  - id: R-UAC-017
-    parent: 법인회원
-    child: 법인소속이력
-    parent_to_child: 가진다
-    child_to_parent: 소속된다
-    cardinality: one_to_many
+    child_to_parent: 속한다
+    cardinality: "1:M"
     parent_participation: "0..M"
     child_participation: "1..1"
     identifying: true
+    fk_attributes: [신청번호]
+    barker_sentence: 각 발급신청은 첨부파일 관계를 0개 이상 가질 수 있다. 각 발급신청첨부파일은 반드시 하나의 발급신청에 속한다.
+  - id: R-APP-010
+    parent: 첨부파일
+    child: 발급신청첨부파일
+    parent_to_child: 첨부된다
+    child_to_parent: 연결된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: true
+    fk_attributes: [첨부파일번호]
+    barker_sentence: 각 첨부파일은 발급신청에 0회 이상 연결될 수 있다. 각 발급신청첨부파일은 반드시 하나의 첨부파일을 가진다.
+  - id: R-APP-011
+    parent: 발급신청
+    child: 과금
+    parent_to_child: 발생시킨다
+    child_to_parent: 발생근거가 된다
+    cardinality: "1:1"
+    parent_participation: "0..1"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [발급신청번호]
+    barker_sentence: 각 발급신청은 과금을 0개 또는 1개 발생시킬 수 있다. 각 과금은 발급신청 근거가 없거나 하나일 수 있다.
+  - id: R-APP-012
+    parent: ACDC자격증명
+    child: 발급신청
+    parent_to_child: 결과가 된다
+    child_to_parent: 생성한다
+    cardinality: "1:1"
+    parent_participation: "0..1"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [결과자격증명번호]
+    barker_sentence: 각 ACDC자격증명은 발급신청의 결과가 아닐 수도 있고 하나의 결과일 수 있다. 각 발급신청은 결과 credential이 없거나 하나일 수 있다.
+  - id: R-APP-013
+    parent: 이용자
+    child: 법인vLEI발급신청
+    parent_to_child: 발급대상이 된다
+    child_to_parent: 대상으로 신청한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
     fk_attributes: [법인회원이용자번호]
-    barker_sentence: 각 법인회원은 소속 이력을 0개 이상 가질 수 있다. 각 법인소속이력은 반드시 하나의 법인회원에 속한다.
-
-  - id: R-UAC-018
-    parent: 개인회원
-    child: 법인소속이력
+    barker_sentence: 각 이용자는 법인회원 자격으로 LE vLEI 신청 대상이 0회 이상 될 수 있다. 각 법인vLEI발급신청은 반드시 하나의 법인회원 이용자를 대상으로 한다.
+  - id: R-APP-014
+    parent: 이용자
+    child: OOR발급신청
+    parent_to_child: 소속법인이 된다
+    child_to_parent: 소속법인으로 신청한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [법인회원이용자번호]
+    barker_sentence: 각 이용자는 법인회원 자격으로 OOR 신청의 소속 법인이 0회 이상 될 수 있다. 각 OOR발급신청은 반드시 하나의 법인회원 이용자를 가진다.
+  - id: R-APP-015
+    parent: 이용자
+    child: OOR발급신청
+    parent_to_child: 발급대상이 된다
+    child_to_parent: 대상으로 신청한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [대상법인소속개인회원이용자번호]
+    barker_sentence: 각 이용자는 법인소속개인회원 자격으로 OOR 발급 대상이 0회 이상 될 수 있다. 각 OOR발급신청은 반드시 하나의 대상 법인소속개인회원 이용자를 가진다.
+  - id: R-APP-016
+    parent: ACDC자격증명
+    child: OOR발급신청
+    parent_to_child: 기준이 된다
+    child_to_parent: 기준으로 신청한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [기준LEvLEI자격증명번호]
+    barker_sentence: 각 LE vLEI credential은 OOR 신청의 기준이 0회 이상 될 수 있다. 각 OOR발급신청은 발급 전까지 기준 LE vLEI credential이 없거나 하나일 수 있다.
+  - id: R-APP-017
+    parent: 이용자
+    child: ECR발급신청
+    parent_to_child: 소속법인이 된다
+    child_to_parent: 소속법인으로 신청한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [법인회원이용자번호]
+    barker_sentence: 각 이용자는 법인회원 자격으로 ECR 신청의 소속 법인이 0회 이상 될 수 있다. 각 ECR발급신청은 반드시 하나의 법인회원 이용자를 가진다.
+  - id: R-APP-018
+    parent: 이용자
+    child: ECR발급신청
+    parent_to_child: 발급대상이 된다
+    child_to_parent: 대상으로 신청한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [대상법인소속개인회원이용자번호]
+    barker_sentence: 각 이용자는 법인소속개인회원 자격으로 ECR 발급 대상이 0회 이상 될 수 있다. 각 ECR발급신청은 반드시 하나의 대상 법인소속개인회원 이용자를 가진다.
+  - id: R-APP-019
+    parent: ACDC자격증명
+    child: ECR발급신청
+    parent_to_child: 기준이 된다
+    child_to_parent: 기준으로 신청한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [기준OOR자격증명번호]
+    barker_sentence: 각 OOR credential은 ECR 신청의 기준이 0회 이상 될 수 있다. 각 ECR발급신청은 발급 전까지 기준 OOR credential이 없거나 하나일 수 있다.
+  - id: R-APP-020
+    parent: KERI식별자
+    child: 법인vLEI발급신청
+    parent_to_child: 법인AID가 된다
+    child_to_parent: 법인AID로 사용한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [법인KERI식별자번호]
+    barker_sentence: 각 KERI식별자는 LE vLEI 신청의 법인 AID가 0회 이상 될 수 있다. 각 법인vLEI발급신청은 법인 AID가 없거나 하나일 수 있다.
+  - id: R-APP-021
+    parent: KERI식별자
+    child: 법인vLEI발급신청
+    parent_to_child: 발급자AID가 된다
+    child_to_parent: 발급자로 사용한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [QVI발급자KERI식별자번호]
+    barker_sentence: 각 KERI식별자는 LE vLEI 신청의 QVI 발급자 AID가 0회 이상 될 수 있다. 각 법인vLEI발급신청은 QVI 발급자 AID가 없거나 하나일 수 있다.
+  - id: R-APP-022
+    parent: KERI식별자
+    child: OOR발급신청
+    parent_to_child: 수신자AID가 된다
+    child_to_parent: 수신자로 사용한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [수신자KERI식별자번호]
+    barker_sentence: 각 KERI식별자는 OOR 신청의 수신자 AID가 0회 이상 될 수 있다. 각 OOR발급신청은 수신자 AID가 없거나 하나일 수 있다.
+  - id: R-APP-023
+    parent: KERI식별자
+    child: ECR발급신청
+    parent_to_child: LE발급자AID가 된다
+    child_to_parent: 발급자로 사용한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [LE발급자KERI식별자번호]
+    barker_sentence: 각 KERI식별자는 ECR 신청의 LE 발급자 AID가 0회 이상 될 수 있다. 각 ECR발급신청은 LE 발급자 AID가 없거나 하나일 수 있다.
+  - id: R-APP-024
+    parent: KERI식별자
+    child: ECR발급신청
+    parent_to_child: 수신자AID가 된다
+    child_to_parent: 수신자로 사용한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [수신자KERI식별자번호]
+    barker_sentence: 각 KERI식별자는 ECR 신청의 수신자 AID가 0회 이상 될 수 있다. 각 ECR발급신청은 수신자 AID가 없거나 하나일 수 있다.
+  - id: R-APP-025
+    parent: ACDC자격증명
+    child: 자격증명생명주기신청
+    parent_to_child: 대상이 된다
+    child_to_parent: 대상으로 신청한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [대상자격증명번호]
+    barker_sentence: 각 ACDC자격증명은 생명주기 요청 대상이 0회 이상 될 수 있다. 각 자격증명생명주기신청은 반드시 하나의 대상 credential을 가진다.
+  - id: R-APP-026
+    parent: 이용자
+    child: 자격증명생명주기신청
+    parent_to_child: 신청한다
+    child_to_parent: 신청된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [신청자이용자번호]
+    barker_sentence: 각 이용자는 생명주기 요청을 0개 이상 신청할 수 있다. 각 생명주기 요청은 반드시 하나의 신청자 이용자를 가진다.
+  - id: R-APP-027
+    parent: 이용자
+    child: 자격증명생명주기신청
+    parent_to_child: 처리담당한다
+    child_to_parent: 처리담당된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [처리담당자이용자번호]
+    barker_sentence: 각 이용자는 생명주기 요청을 0개 이상 처리담당할 수 있다. 각 생명주기 요청은 처리담당자가 없거나 하나일 수 있다.
+  - id: R-APP-028
+    parent: 발급신청
+    child: 자격증명생명주기신청
+    parent_to_child: 유발결과가 된다
+    child_to_parent: 유발한다
+    cardinality: "1:1"
+    parent_participation: "0..1"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [유발발급신청번호]
+    barker_sentence: 각 발급신청은 생명주기 요청이 유발한 신규 발급신청이 아닐 수도 있고 하나일 수 있다. 각 생명주기 요청은 신규 발급신청을 유발하지 않거나 하나만 유발할 수 있다.
+  - id: R-APP-029
+    parent: 자격증명생명주기신청
+    child: 자격증명생명주기신청단계이력
     parent_to_child: 가진다
-    child_to_parent: 소속된다
-    cardinality: one_to_many
+    child_to_parent: 속한다
+    cardinality: "1:M"
+    parent_participation: "1..M"
+    child_participation: "1..1"
+    identifying: false
+    fk_attributes: [생명주기신청번호]
+    barker_sentence: 각 생명주기 요청은 하나 이상의 단계 이력을 가진다. 각 생명주기 단계 이력은 반드시 하나의 생명주기 요청에 속한다.
+  - id: R-APP-030
+    parent: 자격증명생명주기신청단계이력
+    child: 자격증명생명주기신청단계이력
+    parent_to_child: 선행한다
+    child_to_parent: 후행한다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [선행생명주기신청단계이력번호]
+    recursive: true
+    barker_sentence: 각 생명주기 단계 이력은 후행 단계 이력을 0개 이상 가질 수 있다. 각 생명주기 단계 이력은 선행 단계 이력이 없거나 하나일 수 있다.
+  - id: R-APP-031
+    parent: 이용자
+    child: 자격증명생명주기신청단계이력
+    parent_to_child: 처리한다
+    child_to_parent: 처리된다
+    cardinality: "1:M"
+    parent_participation: "0..M"
+    child_participation: "0..1"
+    identifying: false
+    fk_attributes: [처리자이용자번호]
+    barker_sentence: 각 이용자는 생명주기 단계 이력을 0개 이상 처리할 수 있다. 각 생명주기 단계 이력은 처리자가 없거나 하나일 수 있다.
+  - id: R-APP-032
+    parent: 자격증명생명주기신청
+    child: 생명주기신청첨부파일
+    parent_to_child: 가진다
+    child_to_parent: 속한다
+    cardinality: "1:M"
     parent_participation: "0..M"
     child_participation: "1..1"
     identifying: true
-    fk_attributes: [개인회원이용자번호]
-    barker_sentence: 각 개인회원은 소속 이력을 0개 이상 가질 수 있다. 각 법인소속이력은 반드시 하나의 개인회원에 속한다.
-
-  - id: R-UAC-019
-    parent: 법인회원
-    child: 법인소속개인회원
-    parent_to_child: 주소속이 된다
-    child_to_parent: 주소속을 가진다
-    cardinality: one_to_many
-    parent_participation: "0..M"
-    child_participation: "0..1"
-    identifying: false
-    fk_attributes: [주소속법인이용자번호]
-    barker_sentence: 각 법인회원은 주소속 개인회원을 0명 이상 가질 수 있다. 각 법인소속개인회원은 주소속 법인회원이 없거나 하나를 가질 수 있다.
-
-  - id: R-UAC-020
-    parent: 이용자
-    child: 법인소속이력
-    parent_to_child: 확인한다
-    child_to_parent: 확인된다
-    cardinality: one_to_many
-    parent_participation: "0..M"
-    child_participation: "0..1"
-    identifying: false
-    fk_attributes: [소속확인자이용자번호]
-    barker_sentence: 각 이용자는 소속 이력을 0개 이상 확인할 수 있다. 각 법인소속이력은 확인자가 없거나 하나의 이용자에게 확인된다.
-
-  - id: R-UAC-021
-    parent: 약관
-    child: 약관동의이력
-    parent_to_child: 가진다
-    child_to_parent: 대상으로 한다
-    cardinality: one_to_many
+    fk_attributes: [생명주기신청번호]
+    barker_sentence: 각 생명주기 요청은 첨부파일 관계를 0개 이상 가질 수 있다. 각 생명주기신청첨부파일은 반드시 하나의 생명주기 요청에 속한다.
+  - id: R-APP-033
+    parent: 첨부파일
+    child: 생명주기신청첨부파일
+    parent_to_child: 첨부된다
+    child_to_parent: 연결된다
+    cardinality: "1:M"
     parent_participation: "0..M"
     child_participation: "1..1"
-    identifying: false
-    fk_attributes: [약관번호]
-    barker_sentence: 각 약관은 동의 이력을 0개 이상 가질 수 있다. 각 약관동의이력은 반드시 하나의 약관을 대상으로 한다.
-
-  - id: R-UAC-022
-    parent: 이용자
-    child: 약관동의이력
-    parent_to_child: 동의한다
-    child_to_parent: 동의자이다
-    cardinality: one_to_many
+    identifying: true
+    fk_attributes: [첨부파일번호]
+    barker_sentence: 각 첨부파일은 생명주기 요청에 0회 이상 연결될 수 있다. 각 생명주기신청첨부파일은 반드시 하나의 첨부파일을 가진다.
+  - id: R-APP-034
+    parent: 발급신청
+    child: 연계작업
+    parent_to_child: 유발한다
+    child_to_parent: 유발된다
+    cardinality: "1:M"
     parent_participation: "0..M"
     child_participation: "0..1"
     identifying: false
-    fk_attributes: [이용자번호]
-    barker_sentence: 각 이용자는 약관 동의 이력을 0개 이상 가질 수 있다. 각 약관동의이력은 가입 후 동의인 경우 하나의 이용자를 가진다.
-
-  - id: R-UAC-023
-    parent: 회원가입신청
-    child: 약관동의이력
-    parent_to_child: 동의한다
-    child_to_parent: 신청자 동의이다
-    cardinality: one_to_many
+    fk_attributes: [발급신청번호]
+    barker_sentence: 각 발급신청은 연계작업을 0개 이상 유발할 수 있다. 각 연계작업은 발급신청에서 유발되지 않았거나 하나의 발급신청에서 유발된다.
+  - id: R-APP-035
+    parent: 자격증명생명주기신청
+    child: 연계작업
+    parent_to_child: 유발한다
+    child_to_parent: 유발된다
+    cardinality: "1:M"
     parent_participation: "0..M"
     child_participation: "0..1"
     identifying: false
-    fk_attributes: [가입신청번호]
-    barker_sentence: 각 회원가입신청은 약관 동의 이력을 0개 이상 가질 수 있다. 각 약관동의이력은 가입 전 동의인 경우 하나의 회원가입신청을 가진다.
+    fk_attributes: [생명주기신청번호]
+    barker_sentence: 각 생명주기 요청은 연계작업을 0개 이상 유발할 수 있다. 각 연계작업은 생명주기 요청에서 유발되지 않았거나 하나의 생명주기 요청에서 유발된다.
 
-relationship_rules:
-  - 서브타입 관계의 부모참여는 개별 관계 기준으로 0..1이지만, 서브타입 집합의 전체성과 배타성으로 정확히 하나의 서브타입을 강제한다.
-  - 회원가입신청.생성이용자번호는 승인 전에는 선택이고, 승인 완료 상태에서는 필수이며 유일해야 한다.
-  - 회원가입신청은 생성 시 최초 단계 이력을 함께 생성해야 한다.
-  - 법인소속이력의 식별자는 법인회원이용자번호, 개인회원이용자번호, 유효시작일시이다.
-  - 약관동의이력은 이용자번호 또는 가입신청번호 중 하나만 가져야 한다.
-  - 공통 감사 FK는 감사 참조 관계로 관리하되 주요 Barker 다이어그램에서는 생략할 수 있다.
+business_rules:
+  - 발급신청 서브타입은 total/disjoint이다.
+  - 발급신청 생성 또는 접수 시 최초 발급신청단계이력을 함께 생성한다.
+  - 발급 완료 상태의 발급신청은 결과자격증명번호를 반드시 가져야 한다.
+  - 발급 실패, 반려, 취소 상태의 발급신청은 결과자격증명번호를 가지지 않는다.
+  - OOR 발급 전에는 기준LEvLEI자격증명번호가 필요하다.
+  - ECR 발급 전에는 기준OOR자격증명번호가 필요하다.
+  - 폐기 생명주기신청 완료는 ACDC자격증명 상태와 TEL 상태가 모두 폐기 반영된 뒤 확정한다.
+  - 연계작업 실패와 재시도는 신청 상태와 분리한다.
+
+code_groups:
+  발급신청유형코드: [LE_VLEI, OOR, ECR]
+  발급신청상태코드: [DRAFT, REQUESTED, RECEIVED, UNDER_REVIEW, PAYMENT_PENDING, PAYMENT_CONFIRMED, READY_TO_ISSUE, ISSUING, ISSUED, REJECTED, CANCELED, FAILED]
+  발급신청단계구분코드: [REQUEST, RECEIVE, DOCUMENT_REVIEW, LEI_VERIFY, MEMBER_VERIFY, BILLING, PAYMENT_CONFIRM, ISSUE_PREPARE, ISSUE, ADMIT_CONFIRM, COMPLETE, REJECT, CANCEL]
+  단계상태코드: [WAITING, IN_PROGRESS, COMPLETED, FAILED, SKIPPED, CANCELED]
+  첨부파일유형코드: [LE_DOCUMENT, AUTHORIZATION, EMPLOYEE_PROOF, ROLE_PROOF, PAYMENT_PROOF, ETC]
+  첨부파일상태코드: [UPLOADED, VERIFIED, REJECTED, DELETED]
+  첨부파일검증상태코드: [NOT_VERIFIED, VERIFIED, REJECTED]
+  생명주기신청유형코드: [RENEWAL, REISSUE, REVOCATION, STATUS_SYNC, HOLDER_CHANGE]
+  생명주기신청상태코드: [REQUESTED, RECEIVED, UNDER_REVIEW, PROCESSING, COMPLETED, REJECTED, CANCELED, FAILED]
+  생명주기단계구분코드: [REQUEST, RECEIVE, REVIEW, BILLING, PAYMENT_CONFIRM, REVOKE_PREPARE, REVOKE, REISSUE_PREPARE, ISSUE, STATUS_SYNC, COMPLETE, REJECT, CANCEL]
+  LEI상태코드: [ISSUED, LAPSED, RETIRED, MERGED, UNKNOWN]
