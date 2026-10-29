@@ -705,7 +705,12 @@ relationships: []
       // Determine subtype sets
       let sets: { name: string; subtypes: string[] }[] = [];
       if (ent.subtype_sets && ent.subtype_sets.length > 0) {
-        sets = ent.subtype_sets;
+        sets = ent.subtype_sets.map((s: any) => ({
+          name: s.name || s.discriminator || '구분',
+          subtypes: Array.isArray(s.subtypes) 
+            ? s.subtypes.map((sub: any) => typeof sub === 'string' ? sub : sub?.name || '')
+            : []
+        }));
       } else {
         // Fallback: collect all subtypes in the active model that list this entity as supertype
         const childNames = parentToChildren.get(name) || [];
@@ -991,7 +996,12 @@ relationships: []
       // Determine subtype sets
       let sets: { name: string; subtypes: string[] }[] = [];
       if (ent.subtype_sets && ent.subtype_sets.length > 0) {
-        sets = ent.subtype_sets;
+        sets = ent.subtype_sets.map((s: any) => ({
+          name: s.name || s.discriminator || '구분',
+          subtypes: Array.isArray(s.subtypes) 
+            ? s.subtypes.map((sub: any) => typeof sub === 'string' ? sub : sub?.name || '')
+            : []
+        }));
       } else {
         if (children.length > 0) {
           sets = [{
@@ -1109,7 +1119,9 @@ relationships: []
 
           // 2. Add child Subtypes inside the Subtype Set Box recursively
           set.subtypes.forEach(subName => {
-            buildNodes(subName, setId, setAbsoluteX, setAbsoluteY);
+            if (subName) {
+              buildNodes(subName, setId, setAbsoluteX, setAbsoluteY);
+            }
           });
         });
 

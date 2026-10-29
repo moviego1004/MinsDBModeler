@@ -24,6 +24,14 @@ test('daNativeParser: parses actual DA# 4 (.dax) file from DAP dataset', () => {
   assert.ok(companyEnt, '회사 entity should exist');
 
   assert.ok(model.relationships.length > 0, `Expected discovered relationships, got ${model.relationships.length}`);
+  assert.strictEqual(model.relationships.length, 16, `Expected exactly 16 DA# relationships, got ${model.relationships.length}`);
+
+  // Subtype verification
+  assert.ok(userEnt.subtype_sets, '회원 entity should have subtype_sets');
+  assert.strictEqual(userEnt.subtype_sets.length, 1);
+  assert.strictEqual(userEnt.subtype_sets[0].name, '회원권종류');
+  assert.ok(userEnt.subtype_sets[0].subtypes.includes('개인'));
+  assert.ok(userEnt.subtype_sets[0].subtypes.includes('단체'));
 });
 
 test('daNativeParser: parses actual DA# 5 (.damx) file from DAP dataset', () => {

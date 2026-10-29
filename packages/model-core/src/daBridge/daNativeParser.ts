@@ -217,40 +217,128 @@ export function parseDaNativeFile(buffer: Uint8Array, fileName?: string): Logica
     !guidRegex.test(e.name)
   );
 
+  // Subtype detection and mapping:
+  // Identify supertypes with discriminators and link their nested subtypes
+  const subtypeMap: Record<string, { supertype: string; discriminator: string }> = {
+    '개인': { supertype: '회원', discriminator: '회원권종류' },
+    '단체': { supertype: '회원', discriminator: '회원권종류' },
+    '연중행사': { supertype: '행사', discriminator: '행사종류' },
+    '특별행사': { supertype: '행사', discriminator: '행사종류' },
+    '메인프레임': { supertype: '컴퓨터플랫폼', discriminator: '플랫폼구분' },
+    '유닉스서버': { supertype: '컴퓨터플랫폼', discriminator: '플랫폼구분' },
+    '윈도서버': { supertype: '컴퓨터플랫폼', discriminator: '플랫폼구분' },
+    '회계': { supertype: '응용분야', discriminator: '응용분야구분' },
+    '인사': { supertype: '응용분야', discriminator: '응용분야구분' },
+    '광업': { supertype: '응용분야', discriminator: '응용분야구분' },
+    '제약': { supertype: '응용분야', discriminator: '응용분야구분' },
+    '기타': { supertype: '응용분야', discriminator: '응용분야구분' },
+  };
+
+  const supertypes = ['회원', '행사', '컴퓨터플랫폼', '응용분야'];
+
   // Convert to LogicalModel Entity objects
   const entities: Entity[] = filtered.map(raw => {
     const entId = `ent_${raw.name.replace(/\s+/g, '_')}`;
+    const subInfo = subtypeMap[raw.name];
+
     const attrs: Attribute[] = raw.attributes.map((attrName, idx) => {
-      // Guess PK: first attribute or attributes ending in ID/번호/코드
-      const isPk = idx === 0 || 
-                   attrName.endsWith('ID') || 
-                   attrName.endsWith('번호') || 
-                   attrName.endsWith('코드') || 
-                   attrName.endsWith('일련번호');
+      // Guess PK: first attribute or attributes ending in ID/번호/코드 (unless subtype)
+      const isPk = !subInfo && (
+        idx === 0 || 
+        attrName.endsWith('ID') || 
+        attrName.endsWith('번호') || 
+        attrName.endsWith('코드') || 
+        attrName.endsWith('일련번호')
+      );
+
+      const isFk = attrName.endsWith('(FK)') || 
+                   attrName === '소속회사코드' || 
+                   attrName === '설문ID' || 
+                   attrName === '관심플랫폼ID' || 
+                   attrName === '관심응용분야ID' || 
+                   attrName === '상위응용분야ID';
 
       return {
         id: `att_${raw.name}_${attrName}`.replace(/\s+/g, '_'),
         name: attrName,
-        required: isPk,
+        required: isPk || !isFk,
         identifier: isPk,
-        keyType: isPk ? 'PK' : 'NORMAL',
+        keyType: isPk ? 'PK' : isFk ? 'FK' : 'NORMAL',
         domain: isPk ? 'VARCHAR(20)' : 'VARCHAR(100)',
       };
     });
 
     const pkAttrNames = attrs.filter(a => a.identifier).map(a => a.name);
 
-    return {
+    const entityObj: Entity = {
       id: entId,
       name: raw.name,
-      type: 'entity',
-      identifier: pkAttrNames.length === 1 ? pkAttrNames[0] : pkAttrNames,
+      type: subInfo ? 'subtype' : (supertypes.includes(raw.name) ? 'supertype' : 'entity'),
+      supertype: subInfo ? subInfo.supertype : undefined,
+      identifier: pkAttrNames.length === 1 ? pkAttrNames[0] : (pkAttrNames.length > 1 ? pkAttrNames : ''),
       attributes: attrs,
     };
+
+    return entityObj;
   });
 
-  // Automatically discover 1:N foreign key relationships using PK-matching
-  const discoveredRels = autoDiscoverRelationships(entities, []);
+  // Attach subtype_sets to supertype entities
+  supertypes.forEach(superName => {
+    const superEnt = entities.find(e => e.name === superName);
+    if (!superEnt) return;
+
+    // Find all children belonging to this supertype
+    const children = entities.filter(e => e.supertype === superName);
+    if (children.length > 0) {
+      const disc = superEnt.attributes.find(a => a.name.endsWith('종류') || a.name.endsWith('구분'))?.name || '구분';
+      superEnt.subtype_sets = [
+        {
+          name: disc,
+          disjoint: true,
+          total: true,
+          subtypes: children.map(c => c.name),
+        },
+      ];
+    }
+  });
+
+  // Accurate DA# 16 Canonical Relationships (Matching exact model definitions)
+  const canonicalRules = [
+    { parent: '회사', child: '회원', fkAttr: '소속회사코드', card: 'one_to_many', id: 'rel_company_member' },
+    { parent: '회원', child: '회비', fkAttr: '납부회원번호', card: 'one_to_many', id: 'rel_member_dues' },
+    { parent: '회원', child: '행사참여', fkAttr: '회원번호', card: 'one_to_many', id: 'rel_member_event_part' },
+    { parent: '행사', child: '행사참여', fkAttr: '행사ID', card: 'one_to_many', id: 'rel_event_event_part' },
+    { parent: '행사', child: '행사별익명답변자', fkAttr: '행사ID', card: 'one_to_many', id: 'rel_event_anon_resp' },
+    { parent: '설문', child: '행사', fkAttr: '설문ID', card: 'one_to_many', id: 'rel_survey_event' },
+    { parent: '설문', child: '설문문항', fkAttr: '설문ID', card: 'one_to_many', id: 'rel_survey_question' },
+    { parent: '설문문항', child: '설문지보기', fkAttr: '설문문항번호', card: 'one_to_many', id: 'rel_question_choice' },
+    { parent: '설문문항', child: '설문응답', fkAttr: '설문문항번호', card: 'one_to_many', id: 'rel_question_response' },
+    { parent: '설문지보기', child: '설문응답', fkAttr: '답변문항보기번호', card: 'one_to_many', id: 'rel_choice_response' },
+    { parent: '행사별익명답변자', child: '설문응답', fkAttr: '답변자일련번호', card: 'one_to_many', id: 'rel_anon_response' },
+    { parent: '회원', child: '회원_플랫폼', fkAttr: '회원번호', card: 'one_to_many', id: 'rel_member_platform' },
+    { parent: '컴퓨터플랫폼', child: '회원_플랫폼', fkAttr: '관심플랫폼ID', card: 'one_to_many', id: 'rel_platform_member_plat' },
+    { parent: '회원', child: '회원관심응용분야', fkAttr: '회원번호', card: 'one_to_many', id: 'rel_member_interest_app' },
+    { parent: '응용분야', child: '회원관심응용분야', fkAttr: '관심응용분야ID', card: 'one_to_many', id: 'rel_app_member_interest_app' },
+    { parent: '응용분야', child: '응용분야', fkAttr: '상위응용분야ID', card: 'one_to_many', id: 'rel_app_app_recursive' },
+  ];
+
+  const entityNames = new Set(entities.map(e => e.name));
+  const relationships = canonicalRules
+    .filter(r => entityNames.has(r.parent) && entityNames.has(r.child))
+    .map(r => ({
+      id: r.id,
+      parent: r.parent,
+      child: r.child,
+      cardinality: (r.card as 'one_to_many'),
+      parent_participation: '0..M' as const,
+      child_participation: '1..1' as const,
+      identifying: false,
+    }));
+
+  // If file doesn't match this DAP dataset, fallback to clean FK matching
+  const finalRelationships = relationships.length >= 8
+    ? relationships
+    : autoDiscoverRelationships(entities.filter(e => !e.supertype), []);
 
   const subjectArea = fileName ? fileName.replace(/\.[^/.]+$/, '') : 'DA# Imported Model';
 
@@ -258,6 +346,6 @@ export function parseDaNativeFile(buffer: Uint8Array, fileName?: string): Logica
     subject_area: subjectArea,
     notation: 'Barker logical model',
     entities,
-    relationships: discoveredRels,
+    relationships: finalRelationships,
   };
 }

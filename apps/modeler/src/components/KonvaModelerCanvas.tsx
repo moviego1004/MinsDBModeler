@@ -512,7 +512,7 @@ export default function KonvaModelerCanvas({
     }
 
     if (type === 'subtypeSetGroup') {
-      // Subtype Set Group
+      // Subtype Set Group (DA# style yellow-tinted container)
       return (
         <Group
           key={node.id}
@@ -529,19 +529,18 @@ export default function KonvaModelerCanvas({
           <Rect
             width={width}
             height={height}
-            fill={theme.subtypeSetBg}
-            stroke={theme.warning}
-            strokeWidth={1.5}
-            dash={[6, 4]}
+            fill="rgba(254, 240, 138, 0.35)"
+            stroke="#ca8a04"
+            strokeWidth={1.2}
             cornerRadius={8}
           />
           <Text
             text={node.data.label}
             x={10}
-            y={10}
-            fontSize={10}
+            y={8}
+            fontSize={11}
             fontStyle="bold"
-            fill={theme.warning}
+            fill="#854d0e"
           />
         </Group>
       );
@@ -550,6 +549,46 @@ export default function KonvaModelerCanvas({
     // Entity Node (default)
     const attributes: Attribute[] = node.data.attributes || [];
     const isSubtype = node.data.type === 'subtype';
+    
+    // DA# Subtype Pill Badge for leaf subtypes without attributes (e.g. 단체, 메인프레임, 회계)
+    if (isSubtype && attributes.length === 0) {
+      return (
+        <Group
+          key={node.id}
+          x={posX}
+          y={posY}
+          draggable
+          onDragStart={(e) => {
+            e.cancelBubble = true;
+          }}
+          onClick={(e) => handleNodeClick(node, e)}
+          onDblClick={(e) => handleNodeDblClick(node, e)}
+          onDragEnd={(e) => handleDragEnd(node, e)}
+        >
+          <Rect
+            width={width}
+            height={height}
+            fill="#ffffff"
+            stroke={isSelected ? theme.primary : '#64748b'}
+            strokeWidth={isSelected ? 2 : 1}
+            cornerRadius={height / 2}
+            shadowColor="rgba(0,0,0,0.06)"
+            shadowBlur={3}
+            shadowOffset={{ x: 0, y: 1 }}
+          />
+          <Text
+            text={node.data.name}
+            x={0}
+            y={(height - 12) / 2}
+            width={width}
+            fontSize={11}
+            fontStyle="bold"
+            fill="#1e293b"
+            align="center"
+          />
+        </Group>
+      );
+    }
     
     return (
       <Group
