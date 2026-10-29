@@ -16,7 +16,8 @@ import {
   exportDaXml, 
   importExcelXml, 
   exportExcelXml, 
-  parseDdl 
+  parseDdl,
+  parseDaNativeFile
 } from '@barker-modeler/model-core';
 
 interface DaBridgeModalProps {
@@ -36,11 +37,37 @@ export default function DaBridgeModal({
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const nativeInputRef = useRef<HTMLInputElement>(null);
   const xmlInputRef = useRef<HTMLInputElement>(null);
   const excelInputRef = useRef<HTMLInputElement>(null);
   const ddlInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
+
+  // 0. Import Native DA# binary (.dax / .damx)
+  const handleNativeUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setErrorMessage(null);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const buffer = event.target?.result as ArrayBuffer;
+        const uint8 = new Uint8Array(buffer);
+        const model = parseDaNativeFile(uint8, file.name);
+        if (model.entities.length === 0) {
+          throw new Error('선택한 DA# 파일에서 엔터티를 추출할 수 없습니다.');
+        }
+        onLoadModel(model, file.name);
+        setImportStatus(`DA# 원본 파일 "${file.name}" 로드 완료 (엔터티: ${model.entities.length}개, 관계: ${model.relationships.length}개)`);
+      } catch (err: any) {
+        setErrorMessage(`DA# 파일 가져오기 실패: ${err.message || String(err)}`);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
+  };
 
   // 1. Import DA# / ERwin XML
   const handleXmlUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -257,6 +284,43 @@ export default function DaBridgeModal({
 
           {activeTab === 'import' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              {/* Option 0: DA# 4 (.dax) / DA# 5 (.damx) Native Binary */}
+              <div style={{
+                border: '1.5px solid #8b5cf6',
+                borderRadius: '8px',
+                padding: '14px 16px',
+                backgroundColor: 'rgba(139, 92, 246, 0.04)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                    <Sparkles size={18} style={{ color: '#8b5cf6' }} />
+                    <strong style={{ fontSize: '0.95rem', color: '#6d28d9' }}>DA# 원본 파일 직접 열기 (.dax / .damx)</strong>
+                    <span style={{ fontSize: '0.65rem', padding: '1px 6px', borderRadius: '4px', backgroundColor: '#8b5cf6', color: '#ffffff', fontWeight: 'bold' }}>강력 추천 (DA# Personal 호환)</span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                    DA# 4 (.dax, OLE 복합문서) 및 DA# 5 (.damx, MFC 직렬화) 파일을 변환 없이 직접 열어 엔터티, 속성, 식별자(PK) 및 관계선을 즉시 복원합니다.
+                  </p>
+                </div>
+                <div>
+                  <input 
+                    type="file" 
+                    accept=".dax,.damx" 
+                    ref={nativeInputRef} 
+                    style={{ display: 'none' }} 
+                    onChange={handleNativeUpload} 
+                  />
+                  <button 
+                    className="btn btn-primary"
+                    style={{ fontSize: '0.8rem', padding: '7px 16px', whiteSpace: 'nowrap', backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }}
+                    onClick={() => nativeInputRef.current?.click()}
+                  >
+                    DA# 파일 선택
+                  </button>
+                </div>
+              </div>
               {/* Option 1: DA# / ERwin XML */}
               <div style={{
                 border: '1px solid var(--border-color)',

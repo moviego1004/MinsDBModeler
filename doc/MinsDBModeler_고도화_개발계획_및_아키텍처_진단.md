@@ -188,3 +188,7 @@ flowchart LR
   - `COMMENT ON TABLE` 및 `COMMENT ON COLUMN`을 선제적으로 파싱하여 한글 논리명(`name`)과 영문 물리 테이블/컬럼명(`physicalName`)을 자동 매핑하고 `ALTER TABLE ... FOREIGN KEY` 구문 관계선 복원.
 * [x] **6.4 DA# 호환 브릿지 모달 (`DaBridgeModal.tsx`)**:
   - Modeler 툴바에 전용 **"DA# 호환 브릿지"** 모달 연동(XML, 엑셀, DDL 원클릭 가져오기/내보내기).
+* [x] **6.5 DA# 4 (.dax) & DA# 5 (.damx) 원본 바이너리 파일 직접 열기 (`daNativeParser.ts`)**:
+  - DA# Personal 에디션 등 서드파티 내보내기(ERwin XML) 기능이 제한된 환경을 위해 순수 TypeScript 무의존성(Zero-dependency) OLE CFBF 복합문서(`Contents` 스트림 추출) 및 MFC `CArchive` 직렬화 디코더 구현.
+  - DA# 4 (`.dax`)와 DA# 5 (`.damx`) 파일로부터 엔터티, 속성, 식별자(PK), 논리/물리 명칭을 직접 추출하고 `autoDiscoverRelationships`로 외래키 관계선 자동 매핑.
+  - Modeler 상단 툴바에 **"DA# 열기 (.dax, .damx)"** 버튼 및 **"모델 열기 (YAML / DA#)"** 통합 지원, **"DA# 호환 브릿지"** 모달 추천 카드 연동, 프로젝트 탐색기 파일 임포트까지 전체 UI에 원클릭 열기 기능 완성.

@@ -43,6 +43,7 @@ import {
   importProjectBundle,
   createZipBundle,
   readZipBundle,
+  parseDaNativeFile,
 } from '@barker-modeler/model-core';
 import type {
   LogicalModel,
@@ -1651,19 +1652,64 @@ relationships: []
     syncModelToYaml(updated);
   }, [model, syncModelToYaml]);
 
-  // File Upload
+  // File Upload (Supports YAML, DA# .dax, and .damx)
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const lowerName = file.name.toLowerCase();
+    if (lowerName.endsWith('.dax') || lowerName.endsWith('.damx')) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const buffer = event.target?.result as ArrayBuffer;
+          const uint8 = new Uint8Array(buffer);
+          const loadedModel = parseDaNativeFile(uint8, file.name);
+          if (loadedModel.entities.length === 0) {
+            throw new Error('선택한 DA# 파일에서 엔터티를 추출할 수 없습니다.');
+          }
+          syncModelToYaml(loadedModel);
+          alert(`DA# 파일 "${file.name}" 로드 완료! (${loadedModel.entities.length}개 엔터티, ${loadedModel.relationships.length}개 관계)`);
+        } catch (err: any) {
+          alert(`DA# 파일 열기 실패: ${err.message || String(err)}`);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const text = event.target?.result as string;
+        setYamlText(text);
+        updateModelFromYaml(text);
+      };
+      reader.readAsText(file);
+    }
+    e.target.value = '';
+  }, [syncModelToYaml, updateModelFromYaml]);
+
+  // Dedicated Native DA# binary upload (.dax / .damx)
+  const handleDaNativeUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      const text = event.target?.result as string;
-      setYamlText(text);
-      updateModelFromYaml(text);
+      try {
+        const buffer = event.target?.result as ArrayBuffer;
+        const uint8 = new Uint8Array(buffer);
+        const loadedModel = parseDaNativeFile(uint8, file.name);
+        if (loadedModel.entities.length === 0) {
+          throw new Error('선택한 DA# 파일에서 엔터티를 추출할 수 없습니다.');
+        }
+        syncModelToYaml(loadedModel);
+        alert(`DA# 파일 "${file.name}" 로드 완료! (${loadedModel.entities.length}개 엔터티, ${loadedModel.relationships.length}개 관계)`);
+      } catch (err: any) {
+        alert(`DA# 파일 열기 실패: ${err.message || String(err)}`);
+      }
     };
-    reader.readAsText(file);
-  }, [updateModelFromYaml]);
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
+  }, [syncModelToYaml]);
 
   // Export YAML File
   const handleExportYaml = useCallback(() => {
@@ -2011,12 +2057,26 @@ relationships: []
             />
           </label>
 
-          <label className="btn btn-secondary" title="Load YAML to overwrite current active file">
-            <Upload size={16} /> Load YAML
+          <label className="btn btn-secondary" title="YAML 또는 DA# 원본 파일(.dax, .damx) 불러오기">
+            <Upload size={16} /> 모델 열기 (YAML / DA#)
             <input 
               type="file" 
-              accept=".yaml,.yml" 
+              accept=".yaml,.yml,.dax,.damx" 
               onChange={handleFileUpload} 
+              className="hidden-file-input" 
+            />
+          </label>
+
+          <label 
+            className="btn btn-secondary" 
+            title="DA# 원본 파일(.dax / .damx) 직접 열기"
+            style={{ border: '1px solid #8b5cf6', color: '#8b5cf6', fontWeight: 600 }}
+          >
+            <Sparkles size={16} /> DA# 열기 (.dax, .damx)
+            <input 
+              type="file" 
+              accept=".dax,.damx" 
+              onChange={handleDaNativeUpload} 
               className="hidden-file-input" 
             />
           </label>
@@ -2127,41 +2187,86 @@ relationships: []
             <h3 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               Project Files
               <div style={{ display: 'flex', gap: '4px' }}>
-                {/* Import local file into active project */}
-                <label className="btn btn-icon" style={{ padding: '2px 6px', fontSize: '0.75rem', cursor: 'pointer', border: '1px solid var(--border-color)', height: '24px', display: 'flex', alignItems: 'center' }} title="Import File">
+                {/* Import local file into active project (YAML, DDL, DA# .dax/.damx) */}
+                <label className="btn btn-icon" style={{ padding: '2px 6px', fontSize: '0.75rem', cursor: 'pointer', border: '1px solid var(--border-color)', height: '24px', display: 'flex', alignItems: 'center' }} title="Import File (YAML, DDL, DA#)">
                   <Upload size={12} />
                   <input 
                     type="file" 
-                    accept=".yaml,.yml,.sql,.ddl" 
+                    accept=".yaml,.yml,.sql,.ddl,.dax,.damx" 
                     style={{ display: 'none' }}
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (!file || !activeProjectId) return;
-                      const reader = new FileReader();
-                      reader.onload = (event) => {
-                        const content = event.target?.result as string;
-                        if (projectFiles.some((f: any) => f.name === file.name)) {
-                          alert('이미 같은 이름의 파일이 프로젝트에 존재합니다.');
-                          return;
-                        }
-                        setProjects(prevProjects => {
-                          const updated = prevProjects.map(proj => {
-                            if (proj.id === activeProjectId) {
-                              return {
-                                ...proj,
-                                activeFileName: file.name,
-                                files: [...proj.files, { name: file.name, content }]
-                              };
+                      const lower = file.name.toLowerCase();
+
+                      if (lower.endsWith('.dax') || lower.endsWith('.damx')) {
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                          try {
+                            const buffer = event.target?.result as ArrayBuffer;
+                            const uint8 = new Uint8Array(buffer);
+                            const parsed = parseDaNativeFile(uint8, file.name);
+                            if (parsed.entities.length === 0) {
+                              throw new Error('DA# 파일에서 엔터티를 추출할 수 없습니다.');
                             }
-                            return proj;
+                            const targetFilename = `${file.name.replace(/\.(dax|damx)$/i, '')}.yaml`;
+                            const content = stringifyModel(parsed);
+
+                            setProjects(prevProjects => {
+                              const updated = prevProjects.map(proj => {
+                                if (proj.id === activeProjectId) {
+                                  const existingIdx = proj.files.findIndex((f: any) => f.name === targetFilename);
+                                  const newFiles = existingIdx >= 0 
+                                    ? proj.files.map((f: any, i: number) => i === existingIdx ? { ...f, content } : f)
+                                    : [...proj.files, { name: targetFilename, content }];
+                                  return {
+                                    ...proj,
+                                    activeFileName: targetFilename,
+                                    files: newFiles
+                                  };
+                                }
+                                return proj;
+                              });
+                              saveProjects(updated);
+                              return updated;
+                            });
+                            setActiveFileName(targetFilename);
+                            setYamlText(content);
+                            setModel(parsed);
+                            alert(`DA# 파일 "${file.name}"이(가) "${targetFilename}"으로 프로젝트에 성공적으로 추가되었습니다!`);
+                          } catch (err: any) {
+                            alert(`DA# 파일 가져오기 실패: ${err.message || String(err)}`);
+                          }
+                        };
+                        reader.readAsArrayBuffer(file);
+                      } else {
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                          const content = event.target?.result as string;
+                          if (projectFiles.some((f: any) => f.name === file.name)) {
+                            alert('이미 같은 이름의 파일이 프로젝트에 존재합니다.');
+                            return;
+                          }
+                          setProjects(prevProjects => {
+                            const updated = prevProjects.map(proj => {
+                              if (proj.id === activeProjectId) {
+                                return {
+                                  ...proj,
+                                  activeFileName: file.name,
+                                  files: [...proj.files, { name: file.name, content }]
+                                };
+                              }
+                              return proj;
+                            });
+                            saveProjects(updated);
+                            return updated;
                           });
-                          saveProjects(updated);
-                          return updated;
-                        });
-                        setActiveFileName(file.name);
-                        setYamlText(content);
-                      };
-                      reader.readAsText(file);
+                          setActiveFileName(file.name);
+                          setYamlText(content);
+                        };
+                        reader.readAsText(file);
+                      }
+                      e.target.value = '';
                     }} 
                   />
                 </label>
