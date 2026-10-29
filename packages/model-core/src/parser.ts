@@ -1,5 +1,5 @@
 import { parse as yamlParse, stringify as yamlStringify } from 'yaml';
-import { LogicalModel, Entity, Relationship, SubtypeSet, Participation } from './types.js';
+import { LogicalModel, Entity, Attribute, Relationship, SubtypeSet, Participation } from './types.js';
 
 export function parseModel(yamlContent: string): LogicalModel {
   const raw = yamlParse(yamlContent) as any;
@@ -218,6 +218,31 @@ export function stringifyModel(model: LogicalModel): string {
 }
 
 export function parseDdl(ddlText: string): LogicalModel {
+  // 1. Extract COMMENT ON TABLE and COMMENT ON COLUMN before stripping comments
+  const tableComments = new Map<string, string>();
+  const columnComments = new Map<string, string>();
+
+  const commentRegex = /COMMENT\s+ON\s+(TABLE|COLUMN)\s+([a-zA-Z0-9_\."`\[\]]+)\s+IS\s+'([^']*)'/gi;
+  let cMatch: RegExpExecArray | null;
+  while ((cMatch = commentRegex.exec(ddlText)) !== null) {
+    const type = cMatch[1].toUpperCase();
+    const rawTarget = cMatch[2].replace(/["`\[\]]/g, '');
+    const comment = cMatch[3].trim();
+    if (!comment) continue;
+
+    if (type === 'TABLE') {
+      const tbl = rawTarget.split('.').pop() || rawTarget;
+      tableComments.set(tbl.toUpperCase(), comment);
+    } else if (type === 'COLUMN') {
+      const parts = rawTarget.split('.');
+      if (parts.length >= 2) {
+        const col = parts.pop()!;
+        const tbl = parts.pop()!;
+        columnComments.set(`${tbl.toUpperCase()}.${col.toUpperCase()}`, comment);
+      }
+    }
+  }
+
   const cleanDdl = ddlText
     .replace(/--.*$/gm, '') // Remove single-line comments
     .replace(/\/\*[\s\S]*?\*\//g, ''); // Remove multi-line comments
@@ -226,6 +251,7 @@ export function parseDdl(ddlText: string): LogicalModel {
   const entities: Entity[] = [];
   const relationships: Relationship[] = [];
   const relationshipRules: string[] = [];
+  const tablePhysicalToLogical = new Map<string, string>();
 
   for (const stmt of statements) {
     const trimmed = stmt.trim();
@@ -238,6 +264,8 @@ export function parseDdl(ddlText: string): LogicalModel {
     // Clean table name (remove quotes, schema prefix)
     let rawTableName = createTableMatch[1];
     const cleanedTableName = rawTableName.replace(/["`\[\]]/g, '').split('.').pop() || rawTableName;
+    const logicalTableName = tableComments.get(cleanedTableName.toUpperCase()) || cleanedTableName;
+    tablePhysicalToLogical.set(cleanedTableName.toUpperCase(), logicalTableName);
 
     const body = createTableMatch[2];
 
@@ -260,7 +288,7 @@ export function parseDdl(ddlText: string): LogicalModel {
       elements.push(current.trim());
     }
 
-    const attributes: any[] = [];
+    const attributes: Attribute[] = [];
     const pkColumns: string[] = [];
     const tableFks: { cols: string[]; refTable: string; refCols: string[] }[] = [];
 
@@ -321,20 +349,26 @@ export function parseDdl(ddlText: string): LogicalModel {
         pkColumns.push(colName);
       }
 
+      const logicalColName = columnComments.get(`${cleanedTableName.toUpperCase()}.${colName.toUpperCase()}`) || colName;
+
       attributes.push({
-        name: colName,
+        id: `att_${logicalTableName}_${logicalColName}`.replace(/\s+/g, '_'),
+        name: logicalColName,
+        physicalName: colName,
         domain: colType,
         required: isRequired || isPk, // PK is always required
         identifier: isPk,
+        keyType: isPk ? 'PK' : 'NORMAL',
         fk: false, // Will resolve below
       });
     }
 
     // Apply primary key flags
     for (const attr of attributes) {
-      if (pkColumns.includes(attr.name)) {
+      if (pkColumns.includes(attr.physicalName || attr.name)) {
         attr.identifier = true;
         attr.required = true;
+        attr.keyType = 'PK';
       }
     }
 
@@ -342,8 +376,9 @@ export function parseDdl(ddlText: string): LogicalModel {
     for (const fk of tableFks) {
       // Mark local attributes as FK
       for (const attr of attributes) {
-        if (fk.cols.includes(attr.name)) {
+        if (fk.cols.includes(attr.physicalName || attr.name)) {
           attr.fk = true;
+          if (attr.keyType !== 'PK') attr.keyType = 'FK';
         }
       }
 
@@ -351,14 +386,16 @@ export function parseDdl(ddlText: string): LogicalModel {
       const isIdentifying = fk.cols.every(c => pkColumns.includes(c));
 
       // Determine participation
-      const anyFkNullable = attributes.some(attr => fk.cols.includes(attr.name) && !attr.required);
+      const anyFkNullable = attributes.some(attr => fk.cols.includes(attr.physicalName || attr.name) && !attr.required);
       const childParticipation = anyFkNullable ? '0..1' : '1..1';
+
+      const parentRefLogical = tableComments.get(fk.refTable.toUpperCase()) || fk.refTable;
 
       relationships.push({
         id: `R-DDL-${relationships.length + 1}`,
-        name: `R_${cleanedTableName}_${fk.refTable}`,
-        parent: fk.refTable,
-        child: cleanedTableName,
+        name: `R_${logicalTableName}_${parentRefLogical}`,
+        parent: parentRefLogical,
+        child: logicalTableName,
         cardinality: 'one_to_many',
         parent_participation: '0..M',
         child_participation: childParticipation,
@@ -367,12 +404,40 @@ export function parseDdl(ddlText: string): LogicalModel {
       });
     }
 
+    const pkAttrNames = attributes.filter(a => a.identifier).map(a => a.name);
+
     entities.push({
-      name: cleanedTableName,
+      id: `ent_${logicalTableName.replace(/\s+/g, '_')}`,
+      name: logicalTableName,
+      physicalName: cleanedTableName,
       type: 'entity',
-      identifier: pkColumns.length === 1 ? pkColumns[0] : pkColumns,
+      identifier: pkAttrNames.length === 1 ? pkAttrNames[0] : pkAttrNames,
       attributes,
     });
+  }
+
+  // Also parse standalone ALTER TABLE ... ADD FOREIGN KEY
+  const alterFkRegex = /ALTER\s+TABLE\s+([a-zA-Z0-9_\."`\[\]]+)\s+ADD\s+(?:CONSTRAINT\s+[a-zA-Z0-9_\."`\[\]]+\s+)?FOREIGN\s+KEY\s*\((.*?)\)\s+REFERENCES\s+([a-zA-Z0-9_\."`\[\]]+)\s*\((.*?)\)/gi;
+  let aMatch: RegExpExecArray | null;
+  while ((aMatch = alterFkRegex.exec(cleanDdl)) !== null) {
+    const rawChild = aMatch[1].replace(/["`\[\]]/g, '').split('.').pop() || aMatch[1];
+    const rawParent = aMatch[3].replace(/["`\[\]]/g, '').split('.').pop() || aMatch[3];
+    const childName = tablePhysicalToLogical.get(rawChild.toUpperCase()) || rawChild;
+    const parentName = tablePhysicalToLogical.get(rawParent.toUpperCase()) || rawParent;
+
+    const exists = relationships.some(r => r.parent === parentName && r.child === childName);
+    if (!exists) {
+      relationships.push({
+        id: `R-DDL-${relationships.length + 1}`,
+        name: `R_${childName}_${parentName}`,
+        parent: parentName,
+        child: childName,
+        cardinality: 'one_to_many',
+        parent_participation: '0..M',
+        child_participation: '1..1',
+        identifying: false,
+      });
+    }
   }
 
   return {

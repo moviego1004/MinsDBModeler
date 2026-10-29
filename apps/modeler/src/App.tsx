@@ -19,7 +19,8 @@ import {
   FileSpreadsheet,
   FileText,
   FolderArchive,
-  Package
+  Package,
+  Sparkles
 } from 'lucide-react';
 import {
   getProjects,
@@ -57,6 +58,7 @@ import DictionaryManager from './components/DictionaryManager.js';
 import PhysicalTransformWizard from './components/PhysicalTransformWizard.js';
 import ModelLinterModal from './components/ModelLinterModal.js';
 import RelationshipDiscoveryModal from './components/RelationshipDiscoveryModal.js';
+import DaBridgeModal from './components/DaBridgeModal.js';
 import { parse as yamlParse } from 'yaml';
 import { 
   getDictionary, 
@@ -93,6 +95,7 @@ export default function App() {
   const [isTransformOpen, setIsTransformOpen] = useState(false);
   const [isLinterOpen, setIsLinterOpen] = useState(false);
   const [isDiscoveryOpen, setIsDiscoveryOpen] = useState(false);
+  const [isDaBridgeOpen, setIsDaBridgeOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'logical' | 'physical'>('logical');
 
   // Undo/Redo history state
@@ -1768,6 +1771,13 @@ relationships: []
     setIsDiscoveryOpen(false);
   }, [model, syncModelToYaml]);
 
+  // Handle Loading Model from DA# Bridge
+  const handleLoadModelFromDaBridge = useCallback((loadedModel: LogicalModel, sourceName: string) => {
+    syncModelToYaml(loadedModel);
+    setIsDaBridgeOpen(false);
+    alert(`"${sourceName}" 모델을 성공적으로 불러와 현재 캔버스에 반영했습니다! (${loadedModel.entities.length}개 엔터티, ${loadedModel.relationships.length}개 관계)`);
+  }, [syncModelToYaml]);
+
   // Import DDL Handler
   const handleDdlImport = useCallback(() => {
     try {
@@ -2025,6 +2035,15 @@ relationships: []
           </button>
 
           {/* Quality Review & Automation Actions (DA# style) */}
+          <button 
+            className="btn btn-secondary" 
+            title="DA# 5 모델(ERwin XML, 엑셀 정의서, DDL) 불러오기 및 상호 편집"
+            onClick={() => setIsDaBridgeOpen(true)}
+            style={{ border: '1px solid #8b5cf6', color: '#8b5cf6', fontWeight: 'bold' }}
+          >
+            <Sparkles size={16} /> DA# 호환 브릿지
+          </button>
+
           <button 
             className="btn btn-secondary" 
             title="모델 품질 4대 영역 검토 (기본, 표준화, 관계 일관성, 물리 무결성)"
@@ -3171,6 +3190,14 @@ relationships: []
         onClose={() => setIsDiscoveryOpen(false)}
         model={model}
         onApplyRelationships={handleApplyDiscoveredRelationships}
+      />
+
+      {/* DA# 5 Interoperability Bridge Modal */}
+      <DaBridgeModal
+        isOpen={isDaBridgeOpen}
+        onClose={() => setIsDaBridgeOpen(false)}
+        currentModel={model}
+        onLoadModel={handleLoadModelFromDaBridge}
       />
     </div>
   );

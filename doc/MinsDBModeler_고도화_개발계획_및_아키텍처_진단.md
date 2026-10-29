@@ -177,3 +177,14 @@ flowchart LR
 * [x] **5.3 Git 친화적 멀티파일 프로젝트 번들 (옵션 2)**:
   - `packages/model-core/src/zipPacker.ts`: 순수 TypeScript 무의존성(Zero-dependency) PKZip 인코더/디코더 구현 및 단위 테스트(Round-trip) 통과.
   - `App.tsx`: 엔터티별 개별 YAML 파일 및 관계가 분할 압축된 **"Git 번들 (ZIP)" 내보내기/가져오기** 기능 툴바 연동 완료.
+
+### Phase 6: DA# 5 파일 호환 브릿지 및 상호 편집 완성 (완료 100% - 2026-10-29)
+* [x] **6.1 DA# 5 / ERwin XML 파서 & 생성기 (`daXmlParser.ts`, `daXmlExporter.ts`)**:
+  - DA# 5에서 `[다른 이름으로 저장] -> [Erwin (r7) XML 파일로 저장]`한 `.xml` 포맷을 양방향 완벽 파싱/출력하여 엔터티, 논리/물리 컬럼명, PK/FK, 관계선 복원 지원.
+  - MinsDBModeler에서 편집한 모델을 DA# 5의 `[열기] -> [ERWin 파일 가져오기 (.xml)]`로 직접 열 수 있는 XML 익스포터 구축.
+* [x] **6.2 DA# 엑셀 정의서 임포터 (`daExcelImporter.ts`)**:
+  - DA# 파일 리버스 템플릿 및 멀티시트(`테이블목록`, `컬럼정의서`, `관계정의서`) Excel XML 스프레드시트 양방향 로더 구축.
+* [x] **6.3 DA# DDL 리버스 코멘트 매핑 고도화 (`parser.ts`)**:
+  - `COMMENT ON TABLE` 및 `COMMENT ON COLUMN`을 선제적으로 파싱하여 한글 논리명(`name`)과 영문 물리 테이블/컬럼명(`physicalName`)을 자동 매핑하고 `ALTER TABLE ... FOREIGN KEY` 구문 관계선 복원.
+* [x] **6.4 DA# 호환 브릿지 모달 (`DaBridgeModal.tsx`)**:
+  - Modeler 툴바에 전용 **"DA# 호환 브릿지"** 모달 연동(XML, 엑셀, DDL 원클릭 가져오기/내보내기).
