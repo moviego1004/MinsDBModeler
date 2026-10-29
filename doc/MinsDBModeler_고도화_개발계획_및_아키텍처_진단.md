@@ -195,3 +195,7 @@ flowchart LR
 * [x] **6.6 DA# / Barker 표준 표기법 준수 까마귀 발(Crow's Foot) 렌더링 고도화 (`barkerSymbols.ts`, `KonvaModelerCanvas.tsx`)**:
   - 기존의 엔터티를 가리키던 화살표 촉 형태의 왜곡된 기하학적 버그 해결: 선 위의 분기점(Apex)에서 엔터티 경계 테두리로 3갈래 발가락이 활짝 벌어져 안착하는 정통 까마귀 발(Crow's Foot) 기하학으로 재설계.
   - Barker 표기법 표준 규칙 적용: 필수(Mandatory)=실선(Solid), 선택(Optional)=점선(Dashed)의 반반 참여도 분할 적용 및 비표준 원(Circle) 마커를 제거하여 DA# 논리 ERD와 일치하는 깔끔하고 선명한 까마귀 발 시각화 완성.
+* [x] **6.7 DA# 수준의 비중복 직교 채널 라우터 & 포트 슬롯팅 (`calculateDiagramRoutes`, `orthogonalRouter.ts`)**:
+  - 관계선들이 동일한 X/Y 좌표로 겹쳐 뭉개지던(Collinear overlapping) 현상 해결: 전체 다이어그램의 엣지들을 사전 분석하여, 평행한 중간 꺾임선(Trunk)과 우회선에 18px 간격의 고유 채널 레인(`laneSpacing`)을 동적 배분.
+  - 엔터티 변(Side)별 비교차 포트 슬롯팅(Cross-free Port Slotting): 엔터티의 각 변(top, bottom, left, right)에 연결된 엣지들을 상대 엔터티의 좌표 순서로 자동 정렬하여, 선이 엔터티를 빠져나올 때 서로 X자로 꼬이거나 교차하는 현상 원천 차단.
+  - 마우스 Hover/선택 시 `${source} ➔ ${target}` 식별 뱃지 및 하이라이트 제공으로 가독성과 탐색 편의성 극대화.

@@ -15,11 +15,19 @@ export interface RouteOptions {
   totalSourceEdges?: number;
   targetEdgeIndex?: number;
   totalTargetEdges?: number;
+  channelOffset?: number;
   edgeId?: string;
   preferredSourcePort?: PortDirection;
   preferredTargetPort?: PortDirection;
   obstacles?: BoundingBox[];
   padding?: number;
+}
+
+export interface DiagramEdge {
+  id: string;
+  source: string;
+  target: string;
+  [key: string]: any;
 }
 
 export interface RouteResult {

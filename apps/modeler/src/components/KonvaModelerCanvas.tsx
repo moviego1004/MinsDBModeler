@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Stage, Layer, Group, Rect, Text, Line } from 'react-konva';
 import type { Attribute, Point } from '@barker-modeler/model-core';
 import { 
-  calculateOrthogonalRoute, 
-  calculateBarkerEndpointSymbols 
+  calculateBarkerEndpointSymbols,
+  calculateDiagramRoutes
 } from '@barker-modeler/model-core';
 import { 
   ZoomIn, 
@@ -51,6 +51,7 @@ export default function KonvaModelerCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<any>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
+  const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
   const [theme, setTheme] = useState({
     bg: '#f8fafc',
     border: '#cbd5e1',
@@ -756,33 +757,22 @@ export default function KonvaModelerCanvas({
     );
   };
 
+  // Batch calculate collision-free, lane-spaced orthogonal routes for all diagram edges (DA# style)
+  const diagramRoutes = useMemo(() => {
+    const boundingBoxes = nodes.map((n) => ({
+      id: n.id,
+      x: n.position?.x ?? 0,
+      y: n.position?.y ?? 0,
+      width: isNaN(n.width) || !n.width ? 250 : n.width,
+      height: isNaN(n.height) || !n.height ? 120 : n.height,
+    }));
+    return calculateDiagramRoutes(boundingBoxes, edges, { padding: 24, laneSpacing: 18 });
+  }, [nodes, edges]);
+
   // Render Relationship Edges (Custom Barker routing in Canvas)
   const renderEdge = (edge: any) => {
-    const sourceNode = nodes.find((n) => n.id === edge.source);
-    const targetNode = nodes.find((n) => n.id === edge.target);
-
-    if (!sourceNode || !targetNode || !sourceNode.position || !targetNode.position) return null;
-
-    const sWidth = isNaN(sourceNode.width) || !sourceNode.width ? 250 : sourceNode.width;
-    const sHeight = isNaN(sourceNode.height) || !sourceNode.height ? 120 : sourceNode.height;
-    const tWidth = isNaN(targetNode.width) || !targetNode.width ? 250 : targetNode.width;
-    const tHeight = isNaN(targetNode.height) || !targetNode.height ? 120 : targetNode.height;
-
-    const sx = sourceNode.position.x ?? 0;
-    const sy = sourceNode.position.y ?? 0;
-    const tx = targetNode.position.x ?? 0;
-    const ty = targetNode.position.y ?? 0;
-
-    if (isNaN(sx) || isNaN(sy) || isNaN(tx) || isNaN(ty)) return null;
-
-    // Calculate connected edges and index to distribute ports evenly
-    const sourceEdges = edges.filter((e) => e.source === edge.source || e.target === edge.source);
-    const sIdx = sourceEdges.findIndex((e) => e.id === edge.id);
-    const sCount = sourceEdges.length || 1;
-
-    const targetEdges = edges.filter((e) => e.source === edge.target || e.target === edge.target);
-    const tIdx = targetEdges.findIndex((e) => e.id === edge.id);
-    const tCount = targetEdges.length || 1;
+    const route = diagramRoutes[edge.id];
+    if (!route || !route.waypoints || route.waypoints.length < 2) return null;
 
     const card = (edge.data?.cardinality || 'one_to_many').toString().toLowerCase();
     const parentPart = (edge.data?.parent_participation || '0..M').toString().toUpperCase();
@@ -797,21 +787,10 @@ export default function KonvaModelerCanvas({
     const isTargetOptional = childPart.startsWith('0') || childPart.includes('OPTIONAL');
 
     const isSelected = selectedRelationshipId === edge.id || edge.selected;
-    const strokeColor = isSelected ? theme.primary : theme.textMuted;
-    const strokeWidth = isSelected ? 2.5 : 1.6;
-
-    // Calculate clean orthogonal route with obstacle avoidance and distributed ports
-    const route = calculateOrthogonalRoute(
-      { x: sx, y: sy, width: sWidth, height: sHeight },
-      { x: tx, y: ty, width: tWidth, height: tHeight },
-      {
-        sourceEdgeIndex: sIdx,
-        totalSourceEdges: sCount,
-        targetEdgeIndex: tIdx,
-        totalTargetEdges: tCount,
-        padding: 20,
-      }
-    );
+    const isHovered = hoveredEdgeId === edge.id;
+    const isHighlighted = isSelected || isHovered;
+    const strokeColor = isHighlighted ? theme.primary : theme.textMuted;
+    const strokeWidth = isHighlighted ? 2.8 : 1.6;
 
     const waypoints = route.waypoints;
     const flatPoints = waypoints.flatMap((p: Point) => [p.x, p.y]);
@@ -820,6 +799,10 @@ export default function KonvaModelerCanvas({
     const midIdx = Math.floor(waypoints.length / 2);
     const sourceHalfPoints = waypoints.slice(0, midIdx + 1).flatMap((p: Point) => [p.x, p.y]);
     const targetHalfPoints = waypoints.slice(midIdx).flatMap((p: Point) => [p.x, p.y]);
+
+    // Midpoint for relationship label on hover/select
+    const midPoint = waypoints[midIdx] || waypoints[0];
+    const relLabel = edge.data?.name || `${edge.source} ➔ ${edge.target}`;
 
     // Calculate Barker Endpoints Symbols (Crow's foot spreading against entity border)
     const targetSymbols = calculateBarkerEndpointSymbols(
@@ -836,12 +819,14 @@ export default function KonvaModelerCanvas({
 
     return (
       <Group key={edge.id}>
-        {/* Transparent Hitbox for easier relationship selection */}
+        {/* Transparent Hitbox for easier relationship selection and hover */}
         <Line
           points={flatPoints}
           stroke="transparent"
-          strokeWidth={14}
+          strokeWidth={16}
           onClick={(e) => handleEdgeClick(edge.id, e)}
+          onMouseEnter={() => setHoveredEdgeId(edge.id)}
+          onMouseLeave={() => setHoveredEdgeId(null)}
           cursor="pointer"
         />
 
@@ -888,6 +873,35 @@ export default function KonvaModelerCanvas({
             listening={false}
           />
         ))}
+
+        {/* Interactive Relationship Label on Hover/Select (DA# style inspection) */}
+        {isHighlighted && midPoint && (
+          <Group x={midPoint.x} y={midPoint.y}>
+            <Rect
+              x={-(relLabel.length * 3.5 + 10)}
+              y={-11}
+              width={relLabel.length * 7 + 20}
+              height={22}
+              fill={theme.bg}
+              stroke={theme.primary}
+              strokeWidth={1.5}
+              cornerRadius={4}
+              shadowColor="rgba(0,0,0,0.2)"
+              shadowBlur={6}
+              shadowOffset={{ x: 0, y: 2 }}
+            />
+            <Text
+              x={-(relLabel.length * 3.5 + 8)}
+              y={-5}
+              text={relLabel}
+              fontSize={11}
+              fontStyle="bold"
+              fill={theme.primary}
+              align="center"
+              listening={false}
+            />
+          </Group>
+        )}
       </Group>
     );
   };
