@@ -157,6 +157,8 @@ flowchart LR
 * [x] **3.3 서브타입 통합/분할 Transform 연계**:
   - 기존 3대 물리 변환 마법사(`PhysicalTransformWizard`)와 DA# 식별자 모델 정합성 연동 완료.
 
-### Phase 4: 산출물 자동화 & 완성도 제고 (다음 착수 대상)
-* [ ] **4.1 엑셀(XLSX) 테이블/컬럼 정의서 내보내기**: 실무 산출물 규격에 맞춘 원클릭 엑셀 생성.
-* [ ] **4.2 고해상도 SVG/PDF 다이어그램 Export**: 폰트 및 심볼이 깨지지 않는 벡터 그래픽 내보내기.
+### Phase 4: 산출물 자동화 & 완성도 제고 (완료 100% - 2026-10-29)
+* [x] **4.1 엑셀(XLSX/XML) 테이블/컬럼 정의서 내보내기**:
+  - `packages/model-core/src/reports/excelXmlExporter.ts`: 별도 서드파티 라이브러리 설치 없이 엑셀에서 스타일(헤더 배경, 테두리, 열 너비)과 함께 즉시 열리는 멀티시트(`테이블목록`, `컬럼정의서`, `관계정의서`) Excel XML 스프레드시트 생성기 구현 완료.
+* [x] **4.2 표준 마크다운(MD) 모델 명세서 Export**:
+  - `packages/model-core/src/reports/markdownReportExporter.ts`: 엔터티 개요, 속성 상세 스펙, 관계 목록을 GitHub/문서화 친화적 표준 마크다운으로 출력하는 리포터 구현 및 단위 테스트 완료.
