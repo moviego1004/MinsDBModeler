@@ -17,7 +17,9 @@ import {
   ShieldCheck,
   Network,
   FileSpreadsheet,
-  FileText
+  FileText,
+  FolderArchive,
+  Package
 } from 'lucide-react';
 import {
   getProjects,
@@ -36,6 +38,10 @@ import {
   parseDdl,
   exportExcelXml,
   exportMarkdownReport,
+  exportProjectBundle,
+  importProjectBundle,
+  createZipBundle,
+  readZipBundle,
 } from '@barker-modeler/model-core';
 import type {
   LogicalModel,
@@ -1017,7 +1023,7 @@ relationships: []
           segments[lastIndex] = pluralLastWord;
         }
         
-        const pTable = `TB_${segments.join('_')}`;
+        const pTable = ent.physicalName || `TB_${segments.join('_')}`;
         displayName = pTable;
         displayType = 'entity';
         
@@ -1039,13 +1045,13 @@ relationships: []
         }
 
         displayAttributes = filteredAttributes.map(attr => {
-          const pCol = translateLogicalName(attr.name, activeDict, 'UPPER').physicalName;
+          const pCol = attr.physicalName || translateLogicalName(attr.name, activeDict, 'UPPER').physicalName;
           const pType = resolveDataType(attr.domain, attr.name, dbType, activeDict);
           return {
             ...attr,
             name: pCol,
             domain: pType,
-            fk: attr.fk || (attr as any).foreign_key || false
+            fk: attr.fk || attr.keyType === 'FK' || (attr as any).foreign_key || false
           };
         });
       }
@@ -1701,6 +1707,50 @@ relationships: []
     }
   }, [model]);
 
+  // Export Git-friendly Modular Project Bundle (.zip)
+  const handleExportGitBundle = useCallback(() => {
+    try {
+      const projectName = activeProject?.name || model.subject_area || 'project';
+      const bundleFiles = exportProjectBundle(model, projectName);
+      const zipBytes = createZipBundle(bundleFiles);
+      const blob = new Blob([zipBytes as Uint8Array<ArrayBuffer>], { type: 'application/zip' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const safeName = projectName.replace(/\s+/g, '_');
+      a.download = `${safeName}_git_bundle.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert('Git 번들 내보내기 실패: ' + (err.message || String(err)));
+    }
+  }, [model, activeProject]);
+
+  // Import Git-friendly Modular Project Bundle (.zip)
+  const handleImportGitBundle = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const arrayBuffer = event.target?.result as ArrayBuffer;
+        const uint8 = new Uint8Array(arrayBuffer);
+        const extractedFiles = readZipBundle(uint8);
+        if (Object.keys(extractedFiles).length === 0) {
+          throw new Error('ZIP 파일에서 유효한 번들 파일(project.yaml 또는 entities/*.yaml)을 찾을 수 없습니다.');
+        }
+        const loadedModel = importProjectBundle(extractedFiles);
+        syncModelToYaml(loadedModel);
+        alert(`Git 번들로부터 "${loadedModel.subject_area || '모델'}" (${loadedModel.entities.length}개 엔터티, ${loadedModel.relationships.length}개 관계)을 성공적으로 불러왔습니다.`);
+      } catch (err: any) {
+        alert('Git 번들 가져오기 실패: ' + (err.message || String(err)));
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    // Reset file input value
+    e.target.value = '';
+  }, [syncModelToYaml]);
+
   // Handle entity selection from Linter
   const handleSelectEntityFromLinter = useCallback((entityName: string) => {
     setSelectedEntityName(entityName);
@@ -1879,6 +1929,25 @@ relationships: []
           >
             <RefreshCw size={16} /> Auto Layout
           </button>
+
+          {/* Git-friendly Modular Project Bundle (ZIP) */}
+          <button 
+            className="btn btn-secondary" 
+            title="엔터티별 개별 YAML 파일 및 관계를 Git 최적화 ZIP 번들로 내보내기"
+            onClick={handleExportGitBundle}
+          >
+            <FolderArchive size={16} /> Git 번들 (ZIP)
+          </button>
+
+          <label className="btn btn-secondary" title="Git 번들 ZIP 파일 불러오기">
+            <Package size={16} /> 번들 열기
+            <input 
+              type="file" 
+              accept=".zip" 
+              className="hidden-file-input" 
+              onChange={handleImportGitBundle} 
+            />
+          </label>
 
           {/* Import/Export Project Backup */}
           <button 
@@ -2451,13 +2520,55 @@ relationships: []
               </div>
 
               <div className="form-group">
-                <label>Entity Name</label>
+                <label>Entity Name (논리명)</label>
                 <input 
                   type="text" 
                   className="form-control" 
                   value={selectedEntity.name}
                   onChange={(e) => handleUpdateEntity({ ...selectedEntity, name: e.target.value })}
                 />
+              </div>
+
+              <div className="form-group">
+                <label>Physical Table Name (물리 테이블명)</label>
+                <input 
+                  type="text" 
+                  className="form-control" 
+                  placeholder="e.g. TB_USER_INFO"
+                  value={selectedEntity.physicalName || ''}
+                  onChange={(e) => handleUpdateEntity({ ...selectedEntity, physicalName: e.target.value.toUpperCase() || undefined })}
+                />
+              </div>
+
+              <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem' }}>Classification (성격)</label>
+                  <select 
+                    className="form-control"
+                    style={{ fontSize: '0.75rem' }}
+                    value={selectedEntity.classification || ''}
+                    onChange={(e) => handleUpdateEntity({ ...selectedEntity, classification: (e.target.value || undefined) as any })}
+                  >
+                    <option value="">-- 분류 없음 --</option>
+                    <option value="KEY">KEY (핵심 엔터티)</option>
+                    <option value="MAIN">MAIN (기본 엔터티)</option>
+                    <option value="ACTION">ACTION (행위 엔터티)</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem' }}>Level (관리 중요도)</label>
+                  <select 
+                    className="form-control"
+                    style={{ fontSize: '0.75rem' }}
+                    value={selectedEntity.level || ''}
+                    onChange={(e) => handleUpdateEntity({ ...selectedEntity, level: e.target.value ? Number(e.target.value) as any : undefined })}
+                  >
+                    <option value="">-- 레벨 미지정 --</option>
+                    <option value="1">Level 1 (전사 핵심)</option>
+                    <option value="2">Level 2 (주제영역 주요)</option>
+                    <option value="3">Level 3 (단위 업무/보조)</option>
+                  </select>
+                </div>
               </div>
 
               <div className="form-group">
@@ -2471,6 +2582,88 @@ relationships: []
                   <option value="supertype">Supertype (Container)</option>
                   <option value="subtype">Subtype (Nested)</option>
                 </select>
+              </div>
+
+              {/* Volume Estimation Section */}
+              <div style={{ marginTop: '12px', marginBottom: '12px', padding: '10px', backgroundColor: 'var(--bg-main)', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                <label style={{ fontSize: '0.8rem', fontWeight: 'bold', display: 'block', marginBottom: '8px', color: 'var(--text-muted)' }}>
+                  📊 예상 볼륨 산정 (Volume Info)
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                  <div>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>발생 주기</span>
+                    <select
+                      className="form-control"
+                      style={{ fontSize: '0.75rem', height: '28px', padding: '2px 6px' }}
+                      value={selectedEntity.volume?.period || ''}
+                      onChange={(e) => handleUpdateEntity({
+                        ...selectedEntity,
+                        volume: { ...(selectedEntity.volume || {}), period: (e.target.value || undefined) as any }
+                      })}
+                    >
+                      <option value="">-- 주기 선택 --</option>
+                      <option value="daily">일별 (Daily)</option>
+                      <option value="monthly">월별 (Monthly)</option>
+                      <option value="yearly">연별 (Yearly)</option>
+                      <option value="on_demand">수시 (On Demand)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>월 발생량(건)</span>
+                    <input
+                      type="number"
+                      className="form-control"
+                      style={{ fontSize: '0.75rem', height: '28px', padding: '2px 6px' }}
+                      placeholder="0"
+                      value={selectedEntity.volume?.monthlyQuantity ?? ''}
+                      onChange={(e) => handleUpdateEntity({
+                        ...selectedEntity,
+                        volume: { ...(selectedEntity.volume || {}), monthlyQuantity: e.target.value ? Number(e.target.value) : undefined }
+                      })}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <div>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>보존기한(개월)</span>
+                    <input
+                      type="number"
+                      className="form-control"
+                      style={{ fontSize: '0.75rem', height: '28px', padding: '2px 6px' }}
+                      placeholder="개월 수"
+                      value={selectedEntity.volume?.retentionMonths ?? ''}
+                      onChange={(e) => handleUpdateEntity({
+                        ...selectedEntity,
+                        volume: { ...(selectedEntity.volume || {}), retentionMonths: e.target.value ? Number(e.target.value) : undefined }
+                      })}
+                    />
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>총 누적건수</span>
+                    <input
+                      type="number"
+                      className="form-control"
+                      style={{ fontSize: '0.75rem', height: '28px', padding: '2px 6px' }}
+                      placeholder="0"
+                      value={selectedEntity.volume?.totalQuantity ?? ''}
+                      onChange={(e) => handleUpdateEntity({
+                        ...selectedEntity,
+                        volume: { ...(selectedEntity.volume || {}), totalQuantity: e.target.value ? Number(e.target.value) : undefined }
+                      })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '12px' }}>
+                <label>Purpose / Description (정의/설명)</label>
+                <textarea
+                  className="form-control"
+                  style={{ height: '54px', fontSize: '0.75rem', resize: 'vertical' }}
+                  placeholder="엔터티의 비즈니스 정의 및 주요 설명..."
+                  value={selectedEntity.purpose || ''}
+                  onChange={(e) => handleUpdateEntity({ ...selectedEntity, purpose: e.target.value || undefined })}
+                />
               </div>
 
               {selectedEntity.type === 'subtype' && (
@@ -2582,44 +2775,97 @@ relationships: []
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
                   {selectedEntity.attributes.map((attr, idx) => (
                     <div key={idx} style={{ backgroundColor: 'var(--bg-main)', padding: '10px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
-                      <div className="form-group" style={{ marginBottom: '8px' }}>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          style={{ fontWeight: 'bold' }}
-                          value={attr.name}
-                          onChange={(e) => handleUpdateAttribute(idx, { ...attr, name: e.target.value })}
-                        />
+                      <div className="form-group" style={{ marginBottom: '6px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                          <div>
+                            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>논리 속성명</span>
+                            <input 
+                              type="text" 
+                              className="form-control" 
+                              style={{ fontWeight: 'bold', fontSize: '0.75rem' }}
+                              value={attr.name}
+                              onChange={(e) => handleUpdateAttribute(idx, { ...attr, name: e.target.value })}
+                            />
+                          </div>
+                          <div>
+                            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>물리 컬럼명</span>
+                            <input 
+                              type="text" 
+                              className="form-control" 
+                              placeholder="e.g. USER_ID"
+                              style={{ fontSize: '0.75rem' }}
+                              value={attr.physicalName || ''}
+                              onChange={(e) => handleUpdateAttribute(idx, { ...attr, physicalName: e.target.value.toUpperCase() || undefined })}
+                            />
+                          </div>
+                        </div>
                       </div>
                       
-                      <div className="form-row" style={{ marginBottom: '8px' }}>
-                        <input 
-                          type="text" 
-                          className="form-control" 
-                          placeholder="Domain / Type"
-                          value={attr.domain || ''}
-                          onChange={(e) => handleUpdateAttribute(idx, { ...attr, domain: e.target.value || undefined })}
-                        />
+                      <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '6px' }}>
+                        <div>
+                          <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Domain / Type</span>
+                          <input 
+                            type="text" 
+                            className="form-control" 
+                            style={{ fontSize: '0.75rem' }}
+                            placeholder="Domain / Type"
+                            value={attr.domain || ''}
+                            onChange={(e) => handleUpdateAttribute(idx, { ...attr, domain: e.target.value || undefined })}
+                          />
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Key Type</span>
+                          <select
+                            className="form-control"
+                            style={{ fontSize: '0.75rem' }}
+                            value={attr.keyType || (attr.identifier ? 'PK' : attr.fk ? 'FK' : 'NORMAL')}
+                            onChange={(e) => {
+                              const kt = e.target.value as any;
+                              handleUpdateAttribute(idx, {
+                                ...attr,
+                                keyType: kt,
+                                identifier: kt === 'PK',
+                                fk: kt === 'FK',
+                                required: kt === 'PK' ? true : attr.required
+                              });
+                            }}
+                          >
+                            <option value="NORMAL">일반 속성</option>
+                            <option value="PK">PK (주식별자)</option>
+                            <option value="AK">AK (대체키/UK)</option>
+                            <option value="FK">FK (외래키)</option>
+                          </select>
+                        </div>
                       </div>
 
                       <div className="form-row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label className="form-checkbox">
-                          <input 
-                            type="checkbox" 
-                            checked={attr.identifier || false}
-                            onChange={(e) => handleUpdateAttribute(idx, { ...attr, identifier: e.target.checked, required: e.target.checked ? true : attr.required })}
-                          />
-                          PK (#)
-                        </label>
-                        <label className="form-checkbox">
-                          <input 
-                            type="checkbox" 
-                            checked={attr.required || false}
-                            onChange={(e) => handleUpdateAttribute(idx, { ...attr, required: e.target.checked })}
-                            disabled={attr.identifier} // PK must be required
-                          />
-                          Req (*)
-                        </label>
+                        <div style={{ display: 'flex', gap: '12px' }}>
+                          <label className="form-checkbox" style={{ fontSize: '0.75rem' }}>
+                            <input 
+                              type="checkbox" 
+                              checked={attr.identifier || attr.keyType === 'PK'}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                handleUpdateAttribute(idx, {
+                                  ...attr,
+                                  identifier: checked,
+                                  keyType: checked ? 'PK' : (attr.keyType === 'PK' ? 'NORMAL' : attr.keyType),
+                                  required: checked ? true : attr.required
+                                });
+                              }}
+                            />
+                            PK (#)
+                          </label>
+                          <label className="form-checkbox" style={{ fontSize: '0.75rem' }}>
+                            <input 
+                              type="checkbox" 
+                              checked={attr.required || false}
+                              onChange={(e) => handleUpdateAttribute(idx, { ...attr, required: e.target.checked })}
+                              disabled={attr.identifier || attr.keyType === 'PK'}
+                            />
+                            Req (*)
+                          </label>
+                        </div>
                         <button 
                           className="btn btn-icon" 
                           style={{ color: 'var(--danger)', borderColor: 'rgba(239,68,68,0.2)' }}

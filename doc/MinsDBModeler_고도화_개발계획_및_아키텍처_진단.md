@@ -165,3 +165,15 @@ flowchart LR
 * [x] **4.3 UI 통합 및 대화형 모달 연동**:
   - `apps/modeler/src/App.tsx`: 툴바 상단에 **"모델 검토"** (`ModelLinterModal`), **"관계 찾기"** (`RelationshipDiscoveryModal`), **"정의서 (Excel)"**, **"명세서 (MD)"** 버튼 배치 및 상태/이벤트 핸들러 완전 통합.
   - 모델 품질 4대 영역 린터 모달(심각도 필터, 탭 전환, 엔터티 직접 이동) 및 외래키 자동 발견 대화상자(체크박스 일괄/개별 선택 적용) 연동 완료.
+
+### Phase 5: 엔터프라이즈 UX & Git 친화적 프로젝트 관리 (완료 100% - 2026-10-29)
+* [x] **5.1 엔터티 & 속성 DA# 메타데이터 편집기 (옵션 1)**:
+  - `Entity`: 물리 테이블명(`physicalName`), 성격 분류(`KEY`/`MAIN`/`ACTION`), 관리 중요도(`Level 1/2/3`), 예상 볼륨 산정(발생주기, 월발생량, 보존기한, 총건수), 정의/설명(`purpose`) 편집 UI 구축.
+  - `Attribute`: 물리 컬럼명(`physicalName`), 키 유형(`keyType`: NORMAL, PK, AK, FK) 선택기 및 다이어그램 마커(`U`, `*`, `#`, `FK`, `AK`) 연동.
+  - 캔버스 엔터티/슈퍼타입 헤더에 분류 뱃지(`[KEY]`, `[MAIN]`, `[ACTION]`) 시각화 적용.
+* [x] **5.2 캔버스 탐색 & 시각화 편의 기능 (옵션 3)**:
+  - `KonvaModelerCanvas`: 플로팅 줌 컨트롤러(확대/축소, 1:1 리셋, **화면 맞춤 Zoom-to-Fit**, **고해상도 PNG 이미지 내보내기**) 구현.
+  - **엔터티 빠른 검색 (Quick Search & Jump)**: 논리명/물리명 실시간 검색 및 자동 뷰포트 센터링/포커스 이동 기능 구축.
+* [x] **5.3 Git 친화적 멀티파일 프로젝트 번들 (옵션 2)**:
+  - `packages/model-core/src/zipPacker.ts`: 순수 TypeScript 무의존성(Zero-dependency) PKZip 인코더/디코더 구현 및 단위 테스트(Round-trip) 통과.
+  - `App.tsx`: 엔터티별 개별 YAML 파일 및 관계가 분할 압축된 **"Git 번들 (ZIP)" 내보내기/가져오기** 기능 툴바 연동 완료.

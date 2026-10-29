@@ -5,6 +5,15 @@ import {
   calculateOrthogonalRoute, 
   calculateBarkerEndpointSymbols 
 } from '@barker-modeler/model-core';
+import { 
+  ZoomIn, 
+  ZoomOut, 
+  Maximize2, 
+  RotateCcw, 
+  Camera, 
+  Search,
+  X
+} from 'lucide-react';
 
 // Helper to fetch CSS variables for Canvas compatibility
 const getCssVar = (name: string, fallback: string): string => {
@@ -186,6 +195,139 @@ export default function KonvaModelerCanvas({
     }
   };
 
+  // Zoom In
+  const handleZoomIn = () => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const oldScale = stage.scaleX();
+    const newScale = Math.min(oldScale * 1.25, 4);
+    const center = { x: dimensions.width / 2, y: dimensions.height / 2 };
+    const mousePointTo = {
+      x: (center.x - stage.x()) / oldScale,
+      y: (center.y - stage.y()) / oldScale,
+    };
+    stage.scale({ x: newScale, y: newScale });
+    stage.position({
+      x: center.x - mousePointTo.x * newScale,
+      y: center.y - mousePointTo.y * newScale,
+    });
+    stage.batchDraw();
+  };
+
+  // Zoom Out
+  const handleZoomOut = () => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const oldScale = stage.scaleX();
+    const newScale = Math.max(oldScale / 1.25, 0.15);
+    const center = { x: dimensions.width / 2, y: dimensions.height / 2 };
+    const mousePointTo = {
+      x: (center.x - stage.x()) / oldScale,
+      y: (center.y - stage.y()) / oldScale,
+    };
+    stage.scale({ x: newScale, y: newScale });
+    stage.position({
+      x: center.x - mousePointTo.x * newScale,
+      y: center.y - mousePointTo.y * newScale,
+    });
+    stage.batchDraw();
+  };
+
+  // Reset Zoom (1:1)
+  const handleResetZoom = () => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    stage.scale({ x: 1, y: 1 });
+    stage.position({ x: 50, y: 50 });
+    stage.batchDraw();
+  };
+
+  // Fit to Screen (Zoom to Fit)
+  const handleZoomToFit = () => {
+    const stage = stageRef.current;
+    if (!stage || nodes.length === 0) return;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    nodes.forEach(n => {
+      if (n.position) {
+        const x = n.position.x ?? 0;
+        const y = n.position.y ?? 0;
+        const w = n.width || 250;
+        const h = n.height || 120;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x + w > maxX) maxX = x + w;
+        if (y + h > maxY) maxY = y + h;
+      }
+    });
+
+    if (minX === Infinity) {
+      handleResetZoom();
+      return;
+    }
+
+    const padding = 60;
+    const boxWidth = maxX - minX + padding * 2;
+    const boxHeight = maxY - minY + padding * 2;
+    const scaleX = dimensions.width / Math.max(boxWidth, 100);
+    const scaleY = dimensions.height / Math.max(boxHeight, 100);
+    let newScale = Math.min(scaleX, scaleY, 1.2);
+    newScale = Math.max(newScale, 0.2);
+
+    const newX = (dimensions.width - (maxX - minX) * newScale) / 2 - minX * newScale;
+    const newY = (dimensions.height - (maxY - minY) * newScale) / 2 - minY * newScale;
+
+    stage.scale({ x: newScale, y: newScale });
+    stage.position({ x: newX, y: newY });
+    stage.batchDraw();
+  };
+
+  // Export High-Resolution PNG
+  const handleExportPNG = () => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const dataURL = stage.toDataURL({ pixelRatio: 2 });
+    const a = document.createElement('a');
+    a.href = dataURL;
+    a.download = `model_diagram_${Date.now()}.png`;
+    a.click();
+  };
+
+  // Search & Jump to Node
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  const searchResults = searchQuery.trim()
+    ? nodes.filter(n => {
+        const name = n.data?.name || n.id || '';
+        const physical = n.data?.physicalName || '';
+        const q = searchQuery.toLowerCase();
+        return name.toLowerCase().includes(q) || physical.toLowerCase().includes(q);
+      })
+    : [];
+
+  const handleSelectSearchResult = (node: any) => {
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    const posX = node.position?.x ?? 0;
+    const posY = node.position?.y ?? 0;
+    const nodeW = node.width || 250;
+    const nodeH = node.height || 120;
+    const currentScale = stage.scaleX();
+
+    // Center the viewport on this node
+    const targetX = dimensions.width / 2 - (posX + nodeW / 2) * currentScale;
+    const targetY = dimensions.height / 2 - (posY + nodeH / 2) * currentScale;
+
+    stage.position({ x: targetX, y: targetY });
+    stage.batchDraw();
+
+    onSelectionChange?.({ nodes: [node], edges: [] });
+    setSearchQuery('');
+    setIsSearchOpen(false);
+  };
+
   const handleNodeClick = (node: any, e: any) => {
     console.log("🔴 [Konva Canvas] Node Clicked. ID:", node.id);
     e.cancelBubble = true; // Stop event bubbling to stage
@@ -283,16 +425,23 @@ export default function KonvaModelerCanvas({
             fontStyle="bold"
             fill={theme.text}
           />
-          <Text
-            text="SUPERTYPE"
-            x={width - 80}
-            y={12}
-            fontSize={10}
-            fontStyle="bold"
-            fill={theme.primary}
-            align="right"
-            width={70}
-          />
+          {(() => {
+            const classification = node.data.classification;
+            const classColor = classification === 'KEY' ? '#3b82f6' : classification === 'MAIN' ? '#10b981' : classification === 'ACTION' ? '#f59e0b' : theme.primary;
+            const superLabel = classification ? `${classification} | SUPERTYPE` : 'SUPERTYPE';
+            return (
+              <Text
+                text={superLabel}
+                x={width - 120}
+                y={12}
+                fontSize={9}
+                fontStyle="bold"
+                fill={classColor}
+                align="right"
+                width={110}
+              />
+            );
+          })()}
           
           {/* Bottom line for header */}
           <Line
@@ -449,17 +598,25 @@ export default function KonvaModelerCanvas({
           width={width - 80}
           ellipsis
         />
-        {/* Entity Type Label */}
-        <Text
-          text={isPhysical ? 'TABLE' : node.data.type?.toUpperCase() || 'ENTITY'}
-          x={width - 75}
-          y={11}
-          fontSize={9}
-          fontStyle="bold"
-          fill={isSubtype ? theme.warning : theme.textMuted}
-          align="right"
-          width={65}
-        />
+        {/* Entity Type & DA# Classification Label */}
+        {(() => {
+          const classification = node.data.classification;
+          const classColor = classification === 'KEY' ? '#3b82f6' : classification === 'MAIN' ? '#10b981' : classification === 'ACTION' ? '#f59e0b' : (isSubtype ? theme.warning : theme.textMuted);
+          const typeLabel = isPhysical ? 'TABLE' : node.data.type?.toUpperCase() || 'ENTITY';
+          const headerRightText = classification ? `${classification} | ${typeLabel}` : typeLabel;
+          return (
+            <Text
+              text={headerRightText}
+              x={width - 105}
+              y={11}
+              fontSize={8.5}
+              fontStyle="bold"
+              fill={classColor}
+              align="right"
+              width={95}
+            />
+          );
+        })()}
 
         {/* Attributes List */}
         <Group y={36}>
@@ -468,19 +625,28 @@ export default function KonvaModelerCanvas({
               const yPos = idx * 22;
               if (yPos + 22 > height - 36) return null; // Simple clip
               
-              const isPK = attr.identifier;
+              const isPK = attr.identifier || attr.keyType === 'PK';
+              const isAK = attr.keyType === 'AK';
               const isRequired = attr.required;
-              const isFK = attr.fk;
+              const isFK = attr.fk || attr.keyType === 'FK';
 
               let marker = 'o';
               let markerColor = theme.textMuted;
               if (isPK) {
                 marker = '#';
                 markerColor = theme.primary;
+              } else if (isAK) {
+                marker = 'U';
+                markerColor = '#8b5cf6';
               } else if (isRequired) {
                 marker = '*';
                 markerColor = theme.warning;
               }
+
+              const tagSuffix = [
+                isFK ? 'FK' : '',
+                isAK ? 'AK' : ''
+              ].filter(Boolean).join(',');
 
               return (
                 <Group key={idx} y={yPos} x={12}>
@@ -503,10 +669,10 @@ export default function KonvaModelerCanvas({
                     width={width - 120}
                     ellipsis
                   />
-                  {/* Domain / Datatype */}
-                  {attr.domain && (
+                  {/* Domain / Datatype & Tags */}
+                  {(attr.domain || tagSuffix) && (
                     <Text
-                      text={`${attr.domain}${isFK ? ' (FK)' : ''}`}
+                      text={`${attr.domain || ''}${tagSuffix ? ` (${tagSuffix})` : ''}`}
                       x={width - 110}
                       y={2}
                       fontSize={9}
@@ -760,6 +926,182 @@ export default function KonvaModelerCanvas({
           {nodes.map(renderNode)}
         </Layer>
       </Stage>
+
+      {/* Floating Quick Search Bar (Top Left) */}
+      <div
+        style={{
+          position: 'absolute',
+          top: '16px',
+          left: '16px',
+          zIndex: 20,
+          display: 'flex',
+          flexDirection: 'column',
+          width: '260px',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            backgroundColor: 'var(--bg-main, #ffffff)',
+            border: '1px solid var(--border-color, #cbd5e1)',
+            borderRadius: '6px',
+            padding: '4px 8px',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+          }}
+        >
+          <Search size={14} style={{ color: 'var(--text-muted, #94a3b8)', marginRight: '6px' }} />
+          <input
+            type="text"
+            placeholder="엔터티 빠른 검색..."
+            value={searchQuery}
+            onFocus={() => setIsSearchOpen(true)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setIsSearchOpen(true);
+            }}
+            style={{
+              border: 'none',
+              outline: 'none',
+              background: 'transparent',
+              fontSize: '0.8rem',
+              width: '100%',
+              color: 'var(--text-main, #0f172a)',
+            }}
+          />
+          {searchQuery && (
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setIsSearchOpen(false);
+              }}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                color: 'var(--text-muted, #94a3b8)',
+                padding: '2px',
+              }}
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
+
+        {/* Search Results Dropdown */}
+        {isSearchOpen && searchResults.length > 0 && (
+          <div
+            style={{
+              marginTop: '4px',
+              maxHeight: '220px',
+              overflowY: 'auto',
+              backgroundColor: 'var(--bg-main, #ffffff)',
+              border: '1px solid var(--border-color, #cbd5e1)',
+              borderRadius: '6px',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+            }}
+          >
+            {searchResults.map((n) => (
+              <div
+                key={n.id}
+                onClick={() => handleSelectSearchResult(n)}
+                style={{
+                  padding: '6px 10px',
+                  cursor: 'pointer',
+                  borderBottom: '1px solid var(--border-light, #f1f5f9)',
+                  fontSize: '0.75rem',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(59, 130, 246, 0.08)')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                <div>
+                  <strong style={{ color: 'var(--text-main, #0f172a)' }}>{n.data?.name || n.id}</strong>
+                  {n.data?.physicalName && (
+                    <span style={{ marginLeft: '6px', color: 'var(--text-muted, #94a3b8)', fontSize: '0.7rem' }}>
+                      ({n.data.physicalName})
+                    </span>
+                  )}
+                </div>
+                <span
+                  style={{
+                    fontSize: '0.65rem',
+                    padding: '2px 5px',
+                    borderRadius: '4px',
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    color: 'var(--accent-color, #3b82f6)',
+                    fontWeight: 'bold',
+                  }}
+                >
+                  {n.data?.classification || n.data?.type || 'ENTITY'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Floating Canvas Controls (Bottom Right) */}
+      <div
+        style={{
+          position: 'absolute',
+          bottom: '16px',
+          right: '16px',
+          zIndex: 20,
+          display: 'flex',
+          gap: '6px',
+          backgroundColor: 'var(--bg-main, #ffffff)',
+          border: '1px solid var(--border-color, #cbd5e1)',
+          borderRadius: '8px',
+          padding: '4px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+        }}
+      >
+        <button
+          className="btn btn-icon"
+          title="확대 (Zoom In)"
+          onClick={handleZoomIn}
+          style={{ width: '30px', height: '30px', padding: 0 }}
+        >
+          <ZoomIn size={15} />
+        </button>
+        <button
+          className="btn btn-icon"
+          title="축소 (Zoom Out)"
+          onClick={handleZoomOut}
+          style={{ width: '30px', height: '30px', padding: 0 }}
+        >
+          <ZoomOut size={15} />
+        </button>
+        <div style={{ width: '1px', backgroundColor: 'var(--border-color, #cbd5e1)', margin: '4px 0' }} />
+        <button
+          className="btn btn-icon"
+          title="화면 맞춤 (Zoom to Fit)"
+          onClick={handleZoomToFit}
+          style={{ width: '30px', height: '30px', padding: 0 }}
+        >
+          <Maximize2 size={15} />
+        </button>
+        <button
+          className="btn btn-icon"
+          title="원래 배율 1:1 리셋"
+          onClick={handleResetZoom}
+          style={{ width: '30px', height: '30px', padding: 0 }}
+        >
+          <RotateCcw size={15} />
+        </button>
+        <div style={{ width: '1px', backgroundColor: 'var(--border-color, #cbd5e1)', margin: '4px 0' }} />
+        <button
+          className="btn btn-icon"
+          title="고해상도 다이어그램 이미지(PNG) 내보내기"
+          onClick={handleExportPNG}
+          style={{ width: '30px', height: '30px', padding: 0, color: 'var(--accent-color, #3b82f6)' }}
+        >
+          <Camera size={15} />
+        </button>
+      </div>
     </div>
   );
 }
