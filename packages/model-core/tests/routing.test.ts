@@ -36,19 +36,42 @@ test('orthogonalRouter: routes vertical disjoint boxes cleanly', () => {
   }
 });
 
-test('barkerSymbols: calculates crow foot prongs and optional circle', () => {
+test('barkerSymbols: calculates crow foot prongs spreading against entity border', () => {
   const endpoint = { x: 100, y: 100 };
   const prevPoint = { x: 50, y: 100 }; // Incoming horizontally from left
 
   const symbols = calculateBarkerEndpointSymbols(endpoint, prevPoint, {
     isMany: true,
     isOptional: true,
+    prongLength: 12,
+    prongSpread: 9,
   });
 
   assert.ok(symbols.crowFootLines);
   assert.strictEqual(symbols.crowFootLines.length, 3);
+
+  // Each line is [apex, toe]
+  // Apex is at x = 88 (100 - 12), y = 100
+  const [leftLine, centerLine, rightLine] = symbols.crowFootLines;
+  const apex = leftLine[0];
+  assert.strictEqual(apex.x, 88);
+  assert.strictEqual(apex.y, 100);
+
+  // Toes touch the entity border at x = 100
+  const leftToe = leftLine[1];
+  const centerToe = centerLine[1];
+  const rightToe = rightLine[1];
+
+  assert.strictEqual(centerToe.x, 100);
+  assert.strictEqual(centerToe.y, 100);
+  assert.strictEqual(leftToe.x, 100);
+  assert.strictEqual(leftToe.y, 91); // 100 - 9
+  assert.strictEqual(rightToe.x, 100);
+  assert.strictEqual(rightToe.y, 109); // 100 + 9
+
+  // Optional circle (if used) is placed back along the line
   assert.ok(symbols.circle);
-  assert.ok(symbols.circle.cx < endpoint.x, 'Circle should be placed back along the line');
+  assert.ok(symbols.circle.cx < apex.x, 'Circle should be placed back along the line behind apex');
 });
 
 test('autoLayout: ranks parent above child in layered tree', () => {

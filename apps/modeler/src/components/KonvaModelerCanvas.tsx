@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Stage, Layer, Group, Rect, Text, Line, Circle } from 'react-konva';
+import { Stage, Layer, Group, Rect, Text, Line } from 'react-konva';
 import type { Attribute, Point } from '@barker-modeler/model-core';
 import { 
   calculateOrthogonalRoute, 
@@ -786,16 +786,19 @@ export default function KonvaModelerCanvas({
 
     const card = (edge.data?.cardinality || 'one_to_many').toString().toLowerCase();
     const parentPart = (edge.data?.parent_participation || '0..M').toString().toUpperCase();
-    const childParticipation = (edge.data?.child_participation || '1..1').toString();
+    const childPart = (edge.data?.child_participation || '1..1').toString().toUpperCase();
     
-    // Determine if target side is Many (Barker Crow's Foot)
-    const isMany = card === 'one_to_many' || card === '1:m' || card === 'many_to_one' || parentPart.includes('M') || parentPart.includes('*');
-    const isSourceOptional = parentPart.startsWith('0');
-    const isTargetOptional = childParticipation.startsWith('0');
+    // Barker Notation: Determine Many side (Crow's Foot)
+    const isTargetMany = card === 'one_to_many' || card === '1:m' || card === 'many_to_many' || card === 'm:n' || parentPart.includes('M') || parentPart.includes('*');
+    const isSourceMany = card === 'many_to_one' || card === 'm:1' || card === 'many_to_many' || card === 'm:n' || childPart.includes('M') || childPart.includes('*');
+
+    // Barker Notation: Solid (Mandatory) vs Dashed (Optional)
+    const isSourceOptional = parentPart.startsWith('0') || parentPart.includes('OPTIONAL');
+    const isTargetOptional = childPart.startsWith('0') || childPart.includes('OPTIONAL');
 
     const isSelected = selectedRelationshipId === edge.id || edge.selected;
     const strokeColor = isSelected ? theme.primary : theme.textMuted;
-    const strokeWidth = isSelected ? 2.5 : 1.5;
+    const strokeWidth = isSelected ? 2.5 : 1.6;
 
     // Calculate clean orthogonal route with obstacle avoidance and distributed ports
     const route = calculateOrthogonalRoute(
@@ -818,17 +821,17 @@ export default function KonvaModelerCanvas({
     const sourceHalfPoints = waypoints.slice(0, midIdx + 1).flatMap((p: Point) => [p.x, p.y]);
     const targetHalfPoints = waypoints.slice(midIdx).flatMap((p: Point) => [p.x, p.y]);
 
-    // Calculate Barker Endpoints Symbols
+    // Calculate Barker Endpoints Symbols (Crow's foot spreading against entity border)
     const targetSymbols = calculateBarkerEndpointSymbols(
       route.targetPort,
       waypoints[waypoints.length - 2] || route.sourcePort,
-      { isMany, isOptional: isTargetOptional }
+      { isMany: isTargetMany, isOptional: isTargetOptional, prongLength: 13, prongSpread: 9.5 }
     );
 
     const sourceSymbols = calculateBarkerEndpointSymbols(
       route.sourcePort,
       waypoints[1] || route.targetPort,
-      { isMany: false, isOptional: isSourceOptional }
+      { isMany: isSourceMany, isOptional: isSourceOptional, prongLength: 13, prongSpread: 9.5 }
     );
 
     return (
@@ -842,57 +845,49 @@ export default function KonvaModelerCanvas({
           cursor="pointer"
         />
 
-        {/* Source-half (Solid if Mandatory, Dashed if Optional) */}
+        {/* Source-half (Solid if Mandatory, Dashed if Optional - Barker standard) */}
         <Line
           points={sourceHalfPoints}
           stroke={strokeColor}
           strokeWidth={strokeWidth}
-          dash={isSourceOptional ? [5, 4] : undefined}
+          dash={isSourceOptional ? [6, 4] : undefined}
+          lineCap="round"
           listening={false}
         />
 
-        {/* Target-half (Solid if Mandatory, Dashed if Optional) */}
+        {/* Target-half (Solid if Mandatory, Dashed if Optional - Barker standard) */}
         <Line
           points={targetHalfPoints}
           stroke={strokeColor}
           strokeWidth={strokeWidth}
-          dash={isTargetOptional ? [5, 4] : undefined}
+          dash={isTargetOptional ? [6, 4] : undefined}
+          lineCap="round"
           listening={false}
         />
 
-        {/* Source Side Markers (Optional circle) */}
-        {sourceSymbols.circle && (
-          <Circle
-            cx={sourceSymbols.circle.cx}
-            cy={sourceSymbols.circle.cy}
-            r={sourceSymbols.circle.radius}
-            fill={theme.bg}
-            stroke={strokeColor}
-            strokeWidth={strokeWidth}
-          />
-        )}
-
-        {/* Target Side Crow's Foot Lines (Many side) */}
+        {/* Target Side Crow's Foot Lines (Many side: 3 prongs spread out against entity border) */}
         {targetSymbols.crowFootLines?.map((prong: Point[], i: number) => (
           <Line
-            key={`cf-${i}`}
+            key={`target-cf-${i}`}
             points={[prong[0].x, prong[0].y, prong[1].x, prong[1].y]}
             stroke={strokeColor}
             strokeWidth={strokeWidth}
+            lineCap="round"
+            listening={false}
           />
         ))}
 
-        {/* Target Side Markers (Optional circle) */}
-        {targetSymbols.circle && (
-          <Circle
-            cx={targetSymbols.circle.cx}
-            cy={targetSymbols.circle.cy}
-            r={targetSymbols.circle.radius}
-            fill={theme.bg}
+        {/* Source Side Crow's Foot Lines (Many-to-Many or M:1 relations) */}
+        {sourceSymbols.crowFootLines?.map((prong: Point[], i: number) => (
+          <Line
+            key={`source-cf-${i}`}
+            points={[prong[0].x, prong[0].y, prong[1].x, prong[1].y]}
             stroke={strokeColor}
             strokeWidth={strokeWidth}
+            lineCap="round"
+            listening={false}
           />
-        )}
+        ))}
       </Group>
     );
   };

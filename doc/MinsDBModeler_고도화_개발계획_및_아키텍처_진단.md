@@ -192,3 +192,6 @@ flowchart LR
   - DA# Personal 에디션 등 서드파티 내보내기(ERwin XML) 기능이 제한된 환경을 위해 순수 TypeScript 무의존성(Zero-dependency) OLE CFBF 복합문서(`Contents` 스트림 추출) 및 MFC `CArchive` 직렬화 디코더 구현.
   - DA# 4 (`.dax`)와 DA# 5 (`.damx`) 파일로부터 엔터티, 속성, 식별자(PK), 논리/물리 명칭을 직접 추출하고 `autoDiscoverRelationships`로 외래키 관계선 자동 매핑.
   - Modeler 상단 툴바에 **"DA# 열기 (.dax, .damx)"** 버튼 및 **"모델 열기 (YAML / DA#)"** 통합 지원, **"DA# 호환 브릿지"** 모달 추천 카드 연동, 프로젝트 탐색기 파일 임포트까지 전체 UI에 원클릭 열기 기능 완성.
+* [x] **6.6 DA# / Barker 표준 표기법 준수 까마귀 발(Crow's Foot) 렌더링 고도화 (`barkerSymbols.ts`, `KonvaModelerCanvas.tsx`)**:
+  - 기존의 엔터티를 가리키던 화살표 촉 형태의 왜곡된 기하학적 버그 해결: 선 위의 분기점(Apex)에서 엔터티 경계 테두리로 3갈래 발가락이 활짝 벌어져 안착하는 정통 까마귀 발(Crow's Foot) 기하학으로 재설계.
+  - Barker 표기법 표준 규칙 적용: 필수(Mandatory)=실선(Solid), 선택(Optional)=점선(Dashed)의 반반 참여도 분할 적용 및 비표준 원(Circle) 마커를 제거하여 DA# 논리 ERD와 일치하는 깔끔하고 선명한 까마귀 발 시각화 완성.

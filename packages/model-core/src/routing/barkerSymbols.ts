@@ -43,25 +43,29 @@ export function calculateBarkerEndpointSymbols(
   const px = -uy;
   const py = ux;
 
-  // 1. Crow's Foot (Many)
+  // 1. Barker Crow's Foot (Many side: 3 prongs spread out against the entity border)
   if (isMany) {
-    const basePoint = {
+    // Apex is on the incoming line, prongLength distance away from the entity border
+    const apex = {
       x: endpoint.x + ux * prongLength,
       y: endpoint.y + uy * prongLength,
     };
-    const leftPoint = {
-      x: basePoint.x + px * prongSpread,
-      y: basePoint.y + py * prongSpread,
+
+    // The two outer toes touch the entity border, spreading symmetrically by prongSpread
+    const leftToe = {
+      x: endpoint.x + px * prongSpread,
+      y: endpoint.y + py * prongSpread,
     };
-    const rightPoint = {
-      x: basePoint.x - px * prongSpread,
-      y: basePoint.y - py * prongSpread,
+    const rightToe = {
+      x: endpoint.x - px * prongSpread,
+      y: endpoint.y - py * prongSpread,
     };
 
+    // Center toe is the direct junction on the entity border (endpoint)
     result.crowFootLines = [
-      [endpoint, leftPoint],
-      [endpoint, basePoint],
-      [endpoint, rightPoint],
+      [apex, leftToe],
+      [apex, endpoint],
+      [apex, rightToe],
     ];
   }
 
