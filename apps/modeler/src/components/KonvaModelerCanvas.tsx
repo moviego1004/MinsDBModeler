@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { Stage, Layer, Group, Rect, Text, Line, Circle } from 'react-konva';
-import type { Attribute } from '@barker-modeler/model-core';
+import type { Attribute, Point } from '@barker-modeler/model-core';
+import { 
+  calculateOrthogonalRoute, 
+  calculateBarkerEndpointSymbols 
+} from '@barker-modeler/model-core';
 
 // Helper to fetch CSS variables for Canvas compatibility
 const getCssVar = (name: string, fallback: string): string => {
@@ -614,50 +618,9 @@ export default function KonvaModelerCanvas({
     const tIdx = targetEdges.findIndex((e) => e.id === edge.id);
     const tCount = targetEdges.length || 1;
 
-    // Center coordinates for direction vector calculation
-    const scx = sx + sWidth / 2;
-    const scy = sy + sHeight / 2;
-    const tcx = tx + tWidth / 2;
-    const tcy = ty + tHeight / 2;
-
-    const dx = tcx - scx;
-    const dy = tcy - scy;
-
-    let sX = scx, sY = scy, tX = tcx, tY = tcy;
-    let isVertical = false;
-
-    // Determine exit ports with distributed anchors
-    if (Math.abs(dx) > Math.abs(dy)) {
-      isVertical = false;
-      if (dx > 0) {
-        sX = sx + sWidth;
-        sY = sy + (sHeight / (sCount + 1)) * (sIdx + 1);
-        tX = tx;
-        tY = ty + (tHeight / (tCount + 1)) * (tIdx + 1);
-      } else {
-        sX = sx;
-        sY = sy + (sHeight / (sCount + 1)) * (sIdx + 1);
-        tX = tx + tWidth;
-        tY = ty + (tHeight / (tCount + 1)) * (tIdx + 1);
-      }
-    } else {
-      isVertical = true;
-      if (dy > 0) {
-        sX = sx + (sWidth / (sCount + 1)) * (sIdx + 1);
-        sY = sy + sHeight;
-        tX = tx + (tWidth / (tCount + 1)) * (tIdx + 1);
-        tY = ty;
-      } else {
-        sX = sx + (sWidth / (sCount + 1)) * (sIdx + 1);
-        sY = sy;
-        tX = tx + (tWidth / (tCount + 1)) * (tIdx + 1);
-        tY = ty + tHeight;
-      }
-    }
-
     const card = (edge.data?.cardinality || 'one_to_many').toString().toLowerCase();
     const parentPart = (edge.data?.parent_participation || '0..M').toString().toUpperCase();
-    const childParticipation = edge.data?.child_participation || '1..1';
+    const childParticipation = (edge.data?.child_participation || '1..1').toString();
     
     // Determine if target side is Many (Barker Crow's Foot)
     const isMany = card === 'one_to_many' || card === '1:m' || card === 'many_to_one' || parentPart.includes('M') || parentPart.includes('*');
@@ -668,286 +631,102 @@ export default function KonvaModelerCanvas({
     const strokeColor = isSelected ? theme.primary : theme.textMuted;
     const strokeWidth = isSelected ? 2.5 : 1.5;
 
-    // Midpoints with Jittering to prevent line overlap during orthogonal route
-    const edgeIndex = edges.findIndex((e) => e.id === edge.id);
-    const lineOffset = (edgeIndex - edges.length / 2) * 10; // 10px step gap
-
-    let xm = (sX + tX) / 2;
-    let ym = (sY + tY) / 2;
-
-    if (!isVertical) {
-      // Horizontal routing - Route Segment 2 strictly in the gap between nodes or outside their borders
-      xm = xm + lineOffset;
-      const sLeft = sx;
-      const sRight = sx + sWidth;
-      const tLeft = tx;
-      const tRight = tx + tWidth;
-
-      if (sRight < tLeft) {
-        // Source is on the left, Target is on the right
-        const minGapX = sRight + 12;
-        const maxGapX = tLeft - 12;
-        if (xm < minGapX) xm = minGapX;
-        if (xm > maxGapX) xm = maxGapX;
-      } else if (tRight < sLeft) {
-        // Target is on the left, Source is on the right
-        const minGapX = tRight + 12;
-        const maxGapX = sLeft - 12;
-        if (xm < minGapX) xm = minGapX;
-        if (xm > maxGapX) xm = maxGapX;
-      } else {
-        // Overlap on X-axis. Route around the outer edges
-        const outerRight = Math.max(sRight, tRight) + 20;
-        const outerLeft = Math.min(sLeft, tLeft) - 20;
-        if (Math.abs(xm - outerRight) < Math.abs(xm - outerLeft)) {
-          xm = outerRight;
-        } else {
-          xm = outerLeft;
-        }
+    // Calculate clean orthogonal route with obstacle avoidance and distributed ports
+    const route = calculateOrthogonalRoute(
+      { x: sx, y: sy, width: sWidth, height: sHeight },
+      { x: tx, y: ty, width: tWidth, height: tHeight },
+      {
+        sourceEdgeIndex: sIdx,
+        totalSourceEdges: sCount,
+        targetEdgeIndex: tIdx,
+        totalTargetEdges: tCount,
+        padding: 20,
       }
-    } else {
-      // Vertical routing - Route Segment 2 strictly in the gap between nodes or outside their borders
-      ym = ym + lineOffset;
-      const sTop = sy;
-      const sBottom = sy + sHeight;
-      const tTop = ty;
-      const tBottom = ty + tHeight;
+    );
 
-      if (sBottom < tTop) {
-        // Source is on top, Target is on bottom
-        const minGapY = sBottom + 12;
-        const maxGapY = tTop - 12;
-        if (ym < minGapY) ym = minGapY;
-        if (ym > maxGapY) ym = maxGapY;
-      } else if (tBottom < sTop) {
-        // Target is on top, Source is on bottom
-        const minGapY = tBottom + 12;
-        const maxGapY = sTop - 12;
-        if (ym < minGapY) ym = minGapY;
-        if (ym > maxGapY) ym = maxGapY;
-      } else {
-        // Overlap on Y-axis. Route around top/bottom outer edges
-        const outerBottom = Math.max(sBottom, tBottom) + 20;
-        const outerTop = Math.min(sTop, tTop) - 20;
-        if (Math.abs(ym - outerBottom) < Math.abs(ym - outerTop)) {
-          ym = outerBottom;
-        } else {
-          ym = outerTop;
-        }
-      }
-    }
+    const waypoints = route.waypoints;
+    const flatPoints = waypoints.flatMap((p: Point) => [p.x, p.y]);
 
-    // Render Barker Endpoints (Optional circle & Crow's foot) - No vertical bars for 1-side (IE style)
-    const renderMarkers = () => {
-      const markers = [];
-      
-      // Calculate directions based on final approach vectors
-      let sDirX = 1;
-      let sDirY = 1;
-      let tDirX = 1;
-      let tDirY = 1;
-      
-      if (!isVertical) {
-        sDirX = xm >= sX ? 1 : -1;
-        tDirX = tX >= xm ? 1 : -1;
-      } else {
-        sDirY = ym >= sY ? 1 : -1;
-        tDirY = tY >= ym ? 1 : -1;
-      }
+    // Split waypoints into Source-half and Target-half for solid vs dashed participation styling
+    const midIdx = Math.floor(waypoints.length / 2);
+    const sourceHalfPoints = waypoints.slice(0, midIdx + 1).flatMap((p: Point) => [p.x, p.y]);
+    const targetHalfPoints = waypoints.slice(midIdx).flatMap((p: Point) => [p.x, p.y]);
 
-      // Source Side Markers (Parent / One side) - Barker: Only optional circle, NO vertical bar
-      if (isSourceOptional) {
-        if (!isVertical) {
-          markers.push(
-            <Circle
-              key="s-c"
-              cx={sX + sDirX * 8}
-              cy={sY}
-              r={3}
-              fill={theme.bg}
-              stroke={strokeColor}
-              strokeWidth={strokeWidth}
-            />
-          );
-        } else {
-          markers.push(
-            <Circle
-              key="s-c"
-              cx={sX}
-              cy={sY + sDirY * 8}
-              r={3}
-              fill={theme.bg}
-              stroke={strokeColor}
-              strokeWidth={strokeWidth}
-            />
-          );
-        }
-      }
+    // Calculate Barker Endpoints Symbols
+    const targetSymbols = calculateBarkerEndpointSymbols(
+      route.targetPort,
+      waypoints[waypoints.length - 2] || route.sourcePort,
+      { isMany, isOptional: isTargetOptional }
+    );
 
-      // Target Side Markers (Child / Many side)
-      if (isMany) {
-        // Crow's foot branch (Many side)
-        if (!isVertical) {
-          markers.push(
-            <Line
-              key="t-cf-1"
-              points={[tX - tDirX * 12, tY, tX, tY - 6]}
-              stroke={strokeColor}
-              strokeWidth={strokeWidth}
-            />
-          );
-          markers.push(
-            <Line
-              key="t-cf-2"
-              points={[tX - tDirX * 12, tY, tX, tY + 6]}
-              stroke={strokeColor}
-              strokeWidth={strokeWidth}
-            />
-          );
-          
-          // Crow's foot optional circle (behind crow's foot)
-          if (isTargetOptional) {
-            markers.push(
-              <Circle
-                key="t-c"
-                cx={tX - tDirX * 16}
-                cy={tY}
-                r={3}
-                fill={theme.bg}
-                stroke={strokeColor}
-                strokeWidth={strokeWidth}
-              />
-            );
-          }
-        } else {
-          markers.push(
-            <Line
-              key="t-cf-1"
-              points={[tX, tY - tDirY * 12, tX - 6, tY]}
-              stroke={strokeColor}
-              strokeWidth={strokeWidth}
-            />
-          );
-          markers.push(
-            <Line
-              key="t-cf-2"
-              points={[tX, tY - tDirY * 12, tX + 6, tY]}
-              stroke={strokeColor}
-              strokeWidth={strokeWidth}
-            />
-          );
-
-          // Crow's foot optional circle (behind crow's foot)
-          if (isTargetOptional) {
-            markers.push(
-              <Circle
-                key="t-c"
-                cx={tX}
-                cy={tY - tDirY * 16}
-                r={3}
-                fill={theme.bg}
-                stroke={strokeColor}
-                strokeWidth={strokeWidth}
-              />
-            );
-          }
-        }
-      } else {
-        // One-to-One: Target is also One side. Barker: Only optional circle if optional, NO vertical bar
-        if (isTargetOptional) {
-          if (!isVertical) {
-            markers.push(
-              <Circle
-                key="t-c"
-                cx={tX - tDirX * 8}
-                cy={tY}
-                r={3}
-                fill={theme.bg}
-                stroke={strokeColor}
-                strokeWidth={strokeWidth}
-              />
-            );
-          } else {
-            markers.push(
-              <Circle
-                key="t-c"
-                cx={tX}
-                cy={tY - tDirY * 8}
-                r={3}
-                fill={theme.bg}
-                stroke={strokeColor}
-                strokeWidth={strokeWidth}
-              />
-            );
-          }
-        }
-      }
-
-      return markers;
-    };
+    const sourceSymbols = calculateBarkerEndpointSymbols(
+      route.sourcePort,
+      waypoints[1] || route.targetPort,
+      { isMany: false, isOptional: isSourceOptional }
+    );
 
     return (
       <Group key={edge.id}>
         {/* Transparent Hitbox for easier relationship selection */}
-        {!isVertical ? (
-          <Line
-            points={[sX, sY, xm, sY, xm, tY, tX, tY]}
-            stroke="transparent"
-            strokeWidth={14}
-            onClick={(e) => handleEdgeClick(edge.id, e)}
-            cursor="pointer"
-          />
-        ) : (
-          <Line
-            points={[sX, sY, sX, ym, tX, ym, tX, tY]}
-            stroke="transparent"
-            strokeWidth={14}
-            onClick={(e) => handleEdgeClick(edge.id, e)}
-            cursor="pointer"
+        <Line
+          points={flatPoints}
+          stroke="transparent"
+          strokeWidth={14}
+          onClick={(e) => handleEdgeClick(edge.id, e)}
+          cursor="pointer"
+        />
+
+        {/* Source-half (Solid if Mandatory, Dashed if Optional) */}
+        <Line
+          points={sourceHalfPoints}
+          stroke={strokeColor}
+          strokeWidth={strokeWidth}
+          dash={isSourceOptional ? [5, 4] : undefined}
+          listening={false}
+        />
+
+        {/* Target-half (Solid if Mandatory, Dashed if Optional) */}
+        <Line
+          points={targetHalfPoints}
+          stroke={strokeColor}
+          strokeWidth={strokeWidth}
+          dash={isTargetOptional ? [5, 4] : undefined}
+          listening={false}
+        />
+
+        {/* Source Side Markers (Optional circle) */}
+        {sourceSymbols.circle && (
+          <Circle
+            cx={sourceSymbols.circle.cx}
+            cy={sourceSymbols.circle.cy}
+            r={sourceSymbols.circle.radius}
+            fill={theme.bg}
+            stroke={strokeColor}
+            strokeWidth={strokeWidth}
           />
         )}
 
-        {/* Render visible orthogonal line paths: Split into Source-half (Solid/Dashed) and Target-half (Solid/Dashed) */}
-        {!isVertical ? (
-          <>
-            {/* First half: Source optionality (sX, sY) to (xm, ym) */}
-            <Line
-              points={[sX, sY, xm, sY, xm, ym]}
-              stroke={strokeColor}
-              strokeWidth={strokeWidth}
-              dash={isSourceOptional ? [5, 4] : undefined}
-              listening={false}
-            />
-            {/* Second half: Target optionality (xm, ym) to (tX, tY) */}
-            <Line
-              points={[xm, ym, xm, tY, tX, tY]}
-              stroke={strokeColor}
-              strokeWidth={strokeWidth}
-              dash={isTargetOptional ? [5, 4] : undefined}
-              listening={false}
-            />
-          </>
-        ) : (
-          <>
-            {/* First half: Source optionality (sX, sY) to (xm, ym) */}
-            <Line
-              points={[sX, sY, sX, ym, xm, ym]}
-              stroke={strokeColor}
-              strokeWidth={strokeWidth}
-              dash={isSourceOptional ? [5, 4] : undefined}
-              listening={false}
-            />
-            {/* Second half: Target optionality (xm, ym) to (tX, tY) */}
-            <Line
-              points={[xm, ym, tX, ym, tX, tY]}
-              stroke={strokeColor}
-              strokeWidth={strokeWidth}
-              dash={isTargetOptional ? [5, 4] : undefined}
-              listening={false}
-            />
-          </>
+        {/* Target Side Crow's Foot Lines (Many side) */}
+        {targetSymbols.crowFootLines?.map((prong: Point[], i: number) => (
+          <Line
+            key={`cf-${i}`}
+            points={[prong[0].x, prong[0].y, prong[1].x, prong[1].y]}
+            stroke={strokeColor}
+            strokeWidth={strokeWidth}
+          />
+        ))}
+
+        {/* Target Side Markers (Optional circle) */}
+        {targetSymbols.circle && (
+          <Circle
+            cx={targetSymbols.circle.cx}
+            cy={targetSymbols.circle.cy}
+            r={targetSymbols.circle.radius}
+            fill={theme.bg}
+            stroke={strokeColor}
+            strokeWidth={strokeWidth}
+          />
         )}
-        {renderMarkers()}
       </Group>
     );
   };

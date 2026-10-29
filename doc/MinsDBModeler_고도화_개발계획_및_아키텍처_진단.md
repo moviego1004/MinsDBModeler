@@ -140,12 +140,16 @@ flowchart LR
 * [x] **1.3 분할 저장/불러오기(Multi-file YAML) 엔진 개발**:
   - 메타데이터(엔터티 개별 파일, 관계)와 다이어그램 좌표를 독립된 YAML 파일로 분리하여 내보내고 불러오는 `exportProjectBundle` / `importProjectBundle` 엔진(`projectBundle.ts`) 구현 및 단위 테스트 완료.
 
-### Phase 2: 다이어그램 렌더러 리팩토링 & 직교 라우팅 (다음 착수 대상)
-* [ ] **2.1 `OrthogonalEdgeRouter` 구현**: 엔터티 몸통을 관통하지 않고 부드럽게 꺾이는 3구간/5구간 직교 라우팅 알고리즘 구축.
-* [ ] **2.2 심볼 팩토리 분리**: Barker 표기법(까마귀발, 실선/점선, 동그라미) 마커 생성 로직 모듈화.
-* [ ] **2.3 자동 배치(Auto Layout) 연동**: ELK.js 기반 계층 트리(Layered Tree) 자동 배치 탑재.
+### Phase 2: 다이어그램 렌더러 리팩토링 & 직교 라우팅 (완료 100% - 2026-10-29)
+* [x] **2.1 `OrthogonalEdgeRouter` 구현**:
+  - `packages/model-core/src/routing/orthogonalRouter.ts`: 장애물 회피 및 다중 연결선 포트 분산 직교 라우팅 알고리즘 구축.
+  - `KonvaModelerCanvas.tsx` 내부 220여 줄의 수많은 중첩 if-else 및 하드코딩된 오프셋을 완전 제거하고 순수 라우터 호출로 교체 완료.
+* [x] **2.2 심볼 팩토리 분리**:
+  - `packages/model-core/src/routing/barkerSymbols.ts`: Barker 표기법(까마귀발 3갈래 선, 필수/선택 원) 좌표 산출 팩토리 모듈화 및 단위 테스트 완료.
+* [x] **2.3 계층 트리(Layered Tree) 자동 배치 엔진 구현**:
+  - `packages/model-core/src/routing/autoLayout.ts`: 부모-자식 관계에 기반한 위상 정렬 및 계층 레이어(Layered Tree) 좌표 자동 계산 엔진 구축.
 
-### Phase 3: DA# 특화 엔터프라이즈 기능 구현 (대기)
+### Phase 3: DA# 특화 엔터프라이즈 기능 구현 (다음 착수 대상)
 * [ ] **3.1 모델 검토기 (Model Linter)**: 고립 엔터티, 순환 참조, 비표준 용어, PK 누락을 실시간 진단하는 4대 검증 패널 구축.
 * [ ] **3.2 DDL 리버스 & "관계 찾기" (Auto-Relationship Discovery)**: 테이블 DDL 파싱 시 PK-FK 명칭 매칭 기반 관계선 자동 도출.
 * [ ] **3.3 서브타입 통합/분할 Transform 고도화**: 논리 서브타입의 3대 물리 테이블 변환 및 DDL 생성 자동화.
