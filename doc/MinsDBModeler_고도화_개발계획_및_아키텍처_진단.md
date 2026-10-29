@@ -131,16 +131,16 @@ flowchart LR
 
 ## 3. 단계별 고도화 개발 계획 (Roadmap) 및 진척도
 
-### Phase 1: 기반 구조 혁신 & 메타모델 정규화 (진행중 70%)
+### Phase 1: 기반 구조 혁신 & 메타모델 정규화 (완료 100% - 2026-10-29)
 * [x] **1.1 ID 기반 메타모델 전환 및 DA# 메타데이터 수용**:
   - `Entity`, `Attribute`, `Relationship`에 불변 식별자(`id`) 및 DA# 실무 속성(`classification: KEY/MAIN/ACTION`, `level`, `volume`, `physicalName`) 확장 완료.
   - 구버전 YAML 하위 호환 파싱 및 신규 속성 직렬화(`parser.ts`, `types.ts`) 구현 및 단위 테스트 완료.
 * [x] **1.2 Zustand 스토어 아키텍처 도입**:
   - `apps/modeler`에 `useModelStore`(논리/물리 메타데이터, CRUD, 검증) 및 `useDiagramStore`(노드 좌표, 줌, 패닝) 신규 구축 완료.
-* [ ] **1.3 분할 저장/불러오기(Multi-file YAML) 엔진 개발**:
-  - 메타데이터와 다이어그램 좌표를 독립된 YAML 파일로 분리 저장/동기화하는 패키지 로더 구축.
+* [x] **1.3 분할 저장/불러오기(Multi-file YAML) 엔진 개발**:
+  - 메타데이터(엔터티 개별 파일, 관계)와 다이어그램 좌표를 독립된 YAML 파일로 분리하여 내보내고 불러오는 `exportProjectBundle` / `importProjectBundle` 엔진(`projectBundle.ts`) 구현 및 단위 테스트 완료.
 
-### Phase 2: 다이어그램 렌더러 리팩토링 & 직교 라우팅 (대기)
+### Phase 2: 다이어그램 렌더러 리팩토링 & 직교 라우팅 (다음 착수 대상)
 * [ ] **2.1 `OrthogonalEdgeRouter` 구현**: 엔터티 몸통을 관통하지 않고 부드럽게 꺾이는 3구간/5구간 직교 라우팅 알고리즘 구축.
 * [ ] **2.2 심볼 팩토리 분리**: Barker 표기법(까마귀발, 실선/점선, 동그라미) 마커 생성 로직 모듈화.
 * [ ] **2.3 자동 배치(Auto Layout) 연동**: ELK.js 기반 계층 트리(Layered Tree) 자동 배치 탑재.
