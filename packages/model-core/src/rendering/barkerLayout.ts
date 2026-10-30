@@ -26,6 +26,16 @@ import { buildSubtypeHierarchy, type SubtypeHierarchy } from './subtypeHierarchy
 
 export type AttributeMarker = '#' | '*' | 'o';
 
+/**
+ * Compartment caption: the discriminator, plus a note when the set departs from the
+ * Barker default (exclusive + complete): "포괄" = an instance may be in several
+ * subtypes, "부분" = some instances are in none.
+ */
+export function categoryCaption(cat: { label: string; disjoint: boolean; total: boolean }): string {
+  const notes = [cat.disjoint ? '' : '포괄', cat.total ? '' : '부분'].filter(Boolean);
+  return notes.length ? `${cat.label} (${notes.join('·')})` : cat.label;
+}
+
 export interface AttributeRow {
   name: string;
   marker: AttributeMarker;
@@ -327,7 +337,7 @@ export function layoutBarkerDiagram(
         const area = sizes.reduce((s, c) => s + (c.width + style.childGap) * (c.height + style.childGap), 0);
         const wrap = Math.max(widest, innerMin, Math.sqrt(area) * 1.5);
         const f = flow(sizes, wrap, style.childGap);
-        const labelW = measure(cat.label, style.fontSize - 1, true);
+        const labelW = measure(categoryCaption(cat), style.fontSize - 1, true);
         return {
           cat,
           children,
@@ -351,7 +361,7 @@ export function layoutBarkerDiagram(
         });
         placedCats.push({
           key: cl.cat.key,
-          label: cl.cat.label,
+          label: categoryCaption(cl.cat),
           supertype: name,
           disjoint: cl.cat.disjoint,
           total: cl.cat.total,

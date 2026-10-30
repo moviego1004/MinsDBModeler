@@ -17,7 +17,9 @@ import {
   getDictionary,
   saveDictionary,
   translateLogicalName,
-  resolveDataType
+  resolveDataType,
+  parseStandards,
+  serializeStandards
 } from '../services/dictionaryStorage.js';
 import type {
   StandardizationDictionary,
@@ -27,7 +29,6 @@ import type {
   CodeValue
 } from '../services/dictionaryStorage.js';
 import type { LogicalModel } from '@barker-modeler/model-core';
-import { parse as yamlParse, stringify as yamlStringify } from 'yaml';
 
 interface DictionaryManagerProps {
   model: LogicalModel;
@@ -45,43 +46,7 @@ export default function DictionaryManager({
   const [dict, setDict] = useState<StandardizationDictionary>(() => {
     const dictionaryFile = projectFiles.find(f => f.name === 'standardization/dictionary.yaml');
     const domainsFile = projectFiles.find(f => f.name === 'standardization/domains.yaml');
-    
-    if (dictionaryFile || domainsFile) {
-      try {
-        const dictYaml = dictionaryFile ? yamlParse(dictionaryFile.content) as any : {};
-        const domainsYaml = domainsFile ? yamlParse(domainsFile.content) as any : {};
-        
-        const words = Array.isArray(dictYaml.words) 
-          ? dictYaml.words.map((w: any) => ({
-              logicalName: w.logicalName || w.logical || '',
-              physicalAbbr: w.physicalAbbr || w.physical || ''
-            }))
-          : [];
-
-        const terms = Array.isArray(dictYaml.terms)
-          ? dictYaml.terms.map((t: any) => ({
-              logicalName: t.logicalName || t.logical || '',
-              physicalName: t.physicalName || t.physical || ''
-            }))
-          : [];
-
-        const domains = Array.isArray(domainsYaml.domains)
-          ? domainsYaml.domains.map((d: any) => ({
-              logicalName: d.logicalName || d.logical || d.name || '',
-              physicalName: d.physicalName || d.physical || d.type || ''
-            }))
-          : [];
-
-        return {
-          domains,
-          words,
-          terms,
-          codes: dictYaml.codes || []
-        };
-      } catch (e) {
-        console.error('Failed to parse project dictionary files, using global dictionary', e);
-      }
-    }
+    if (dictionaryFile || domainsFile) return parseStandards(dictionaryFile?.content, domainsFile?.content);
     return getDictionary();
   });
   const [activeSubTab, setActiveSubTab] = useState<'domain' | 'word' | 'term' | 'code' | 'audit'>('audit');
@@ -258,16 +223,7 @@ export default function DictionaryManager({
   const handleSave = (updatedDict: StandardizationDictionary) => {
     setDict(updatedDict);
     if (onUpdateFile) {
-      const dictYaml = yamlStringify({
-        words: updatedDict.words,
-        terms: updatedDict.terms,
-        codes: updatedDict.codes
-      }, { indent: 2, lineWidth: 0 });
-      
-      const domainsYaml = yamlStringify({
-        domains: updatedDict.domains
-      }, { indent: 2, lineWidth: 0 });
-      
+      const { dictionary: dictYaml, domains: domainsYaml } = serializeStandards(updatedDict);
       onUpdateFile('standardization/dictionary.yaml', dictYaml);
       onUpdateFile('standardization/domains.yaml', domainsYaml);
     } else {

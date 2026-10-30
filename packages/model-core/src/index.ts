@@ -8,9 +8,7 @@ export * from './relationshipDiscovery.js';
 export * from './reports/index.js';
 export * from './zipPacker.js';
 export * from './daBridge/index.js';
-
-
-
-
 export * from './rendering/index.js';
 export * from './project/index.js';
+export * from './standards/index.js';
+export * from './physical/index.js';

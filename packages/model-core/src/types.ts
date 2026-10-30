@@ -12,7 +12,16 @@ export interface Attribute {
   alias?: string;
 }
 
+/**
+ * Subtype set (Barker category). Two independent flags:
+ *   disjoint — 배타(true): an instance belongs to at most one subtype.
+ *              포괄(false): it may belong to several. DA# stores the inverse as
+ *              CEnSubset::Inclusive, so DA# Inclusive=true ⇔ disjoint=false.
+ *   total    — 완전(true): every instance belongs to some subtype; 부분(false): not
+ *              necessarily. (DA# has no separate flag for this; imports default to true.)
+ */
 export interface SubtypeSetRef {
+  /** Discriminator attribute (or set label). */
   name: string;
   disjoint: boolean;
   total: boolean;
@@ -45,6 +54,7 @@ export interface Entity {
   business_rules?: string[];
 }
 
+/** Model-level subtype set; same flag semantics as {@link SubtypeSetRef}. */
 export interface SubtypeSet {
   id?: string;
   name?: string;

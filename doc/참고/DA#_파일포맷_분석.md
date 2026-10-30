@@ -338,7 +338,7 @@ CEnRelation (공통 베이스)
   (Parent)쪽에서 읽는 관계명(양방향 역할구문, 예: "~의" / "~로서"). `GetRoleName`도 존재해
   역할명이 중첩 저장될 수 있다.
 - **카디널리티/옵셔널리티 — [확인, 2026-10-30 Ghidra 재조사로 해결]**: 이후
-  `doc/MinsDBModeler_고도화_개발계획_및_아키텍처_진단.md` §5.3에서 Ghidra 디컴파일 + Export
+  `doc/MinsDBModeler_개발문서.md` 부록 A.3에서 Ghidra 디컴파일 + Export
   시그니처로 확정했다. 요약:
   - `GetRelType`/`SetRelType`은 `GlobalEnum::_eRelVirtualType`(Real/Pseudo/Virtual 분류)이고
     `GetLineType`/`SetLineType`은 `GlobalEnum::_eLineType`이다 — **카디널리티+필수여부+식별
@@ -445,7 +445,7 @@ Items" 샘플 계열을 계승한 것으로 보임)는 좌표를 `CRect` 하나�
 
 Barker 표기법(기존 MinsDBModeler가 채택 중인 표기)과 대조했을 때, DA#의 저장 방식은 다음과
 같이 매핑된다(상세 근거는
-`doc/MinsDBModeler_고도화_개발계획_및_아키텍처_진단.md` §5.3):
+`doc/MinsDBModeler_개발문서.md` 부록 A.3):
 
 - **카디널리티 + 필수여부 + 식별여부**: `CEnRelation::GetLineType()/SetLineType()`의
   `GlobalEnum::_eLineType` **하나**로 결정됨(1:M Optional / 1:M Mandatory / 1:M Identify /
@@ -485,7 +485,7 @@ required 플래그(선택성)"의 2단 구조로 가정하면 된다 — 더 이
 3. **`CEnSubset::GetState()`(plain int)의 정확한 의미** — disjoint/overlap이 아님은 확인했으나
    (§10, Inclusive/Exclusive가 그 역할), `GetState`가 실제 무엇을 나타내는지는 여전히 미확정.
 4. **다이어그램 좌표/크기/웨이포인트 필드의 정확한 바이트 순서와 단위**(§11.2). 다만
-   `doc/MinsDBModeler_고도화_개발계획_및_아키텍처_진단.md` §5.4에서 `EnAutoLayout.dll`
+   `doc/MinsDBModeler_개발문서.md` 부록 A.4에서 `EnAutoLayout.dll`
    Export API로 "노드 배치"와 "관계선 포트 슬롯팅"이 별도 2단계 파이프라인임은 확인됨 —
    남은 것은 파일에 저장된 바이트의 좌표 필드 순서뿐.
 

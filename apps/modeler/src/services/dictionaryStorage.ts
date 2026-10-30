@@ -1,37 +1,19 @@
-export interface StandardDomain {
-  logicalName: string;
-  dataTypeOracle: string;
-  dataTypePostgres: string;
-  dataTypeMysql: string;
-}
+import type {
+  StandardDomain,
+  StandardWord,
+  StandardTerm,
+  StandardCode,
+  StandardizationDictionary,
+} from '@barker-modeler/model-core';
 
-export interface StandardWord {
-  logicalName: string;
-  physicalAbbr: string;
-}
+export type { StandardDomain, StandardWord, StandardTerm, CodeValue, StandardCode, StandardizationDictionary, TokenResult, TranslationResult } from '@barker-modeler/model-core';
+export { translateLogicalName, resolveDataType, parseStandards, serializeStandards, addStandardWords } from '@barker-modeler/model-core';
 
-export interface StandardTerm {
-  logicalName: string;
-  physicalName: string;
-}
-
-export interface CodeValue {
-  value: string;
-  label: string;
-}
-
-export interface StandardCode {
-  logicalName: string;
-  values: CodeValue[];
-}
-
-export interface StandardizationDictionary {
-  domains: StandardDomain[];
-  words: StandardWord[];
-  terms: StandardTerm[];
-  codes: StandardCode[];
-}
-
+/**
+ * Browser-local dictionary (localStorage). Only used as a starting point for new
+ * projects and by the dictionary manager when no project is open — a project always
+ * uses its own standards/*.yaml so its output never depends on browser state.
+ */
 const DICTIONARY_STORAGE_KEY = 'mins_db_modeler_dictionary';
 
 // Default Standardization Dictionary
@@ -197,170 +179,4 @@ export function saveDictionary(dict: StandardizationDictionary): void {
   } catch (e) {
     console.error('Failed to save dictionary to localStorage', e);
   }
-}
-
-export interface TokenResult {
-  text: string;
-  standard: boolean;
-  abbr?: string;
-}
-
-export interface TranslationResult {
-  tokens: TokenResult[];
-  physicalName: string;
-  hasNonStandard: boolean;
-  nonStandardWords: string[];
-}
-
-/**
- * Translates a logical name to a physical name based on standard words and terms.
- * Performs Greedy Longest-Match tokenization.
- */
-export function translateLogicalName(
-  logicalName: any,
-  dict: StandardizationDictionary,
-  caseType: 'UPPER' | 'CAMEL' = 'UPPER'
-): TranslationResult {
-  let nameStr = '';
-  if (typeof logicalName === 'string') {
-    nameStr = logicalName;
-  } else if (logicalName && typeof logicalName === 'object') {
-    nameStr = logicalName.name || JSON.stringify(logicalName);
-  } else {
-    nameStr = String(logicalName || '');
-  }
-
-  // 1. Check exact term dictionary match first
-  const cleanTerms = (dict?.terms || []).filter(t => t && typeof t.logicalName === 'string');
-  const exactMatch = cleanTerms.find(t => t.logicalName === nameStr);
-  if (exactMatch) {
-    let pName = exactMatch.physicalName || '';
-    if (caseType === 'CAMEL') {
-      pName = snakeToCamel(pName);
-    }
-    return {
-      tokens: [{ text: nameStr, standard: true, abbr: exactMatch.physicalName }],
-      physicalName: pName,
-      hasNonStandard: false,
-      nonStandardWords: [],
-    };
-  }
-
-  // Sort words by length descending to ensure greedy longest-match
-  const cleanWords = (dict?.words || []).filter(w => w && typeof w.logicalName === 'string');
-  const sortedWords = [...cleanWords].sort((a, b) => (b.logicalName || '').length - (a.logicalName || '').length);
-
-  const tokens: TokenResult[] = [];
-  let remaining = nameStr;
-  let nonStandardWordAccumulator = '';
-  const nonStandardWords: string[] = [];
-
-  while (remaining.length > 0) {
-    let matched = false;
-
-    for (const w of sortedWords) {
-      if (remaining.startsWith(w.logicalName)) {
-        // If we had accumulated non-standard characters, flush them
-        if (nonStandardWordAccumulator.length > 0) {
-          tokens.push({ text: nonStandardWordAccumulator, standard: false });
-          nonStandardWords.push(nonStandardWordAccumulator);
-          nonStandardWordAccumulator = '';
-        }
-
-        tokens.push({ text: w.logicalName, standard: true, abbr: w.physicalAbbr });
-        remaining = remaining.substring(w.logicalName.length);
-        matched = true;
-        break;
-      }
-    }
-
-    if (!matched) {
-      // Accumulate 1 non-standard character
-      nonStandardWordAccumulator += remaining[0];
-      remaining = remaining.substring(1);
-    }
-  }
-
-  // Flush any remaining non-standard accumulator
-  if (nonStandardWordAccumulator.length > 0) {
-    tokens.push({ text: nonStandardWordAccumulator, standard: false });
-    nonStandardWords.push(nonStandardWordAccumulator);
-  }
-
-  const hasNonStandard = tokens.some(t => !t.standard);
-
-  // Join abbreviations with underscore
-  const abbrList = tokens.map(t => t.abbr || t.text.toUpperCase());
-  let physicalName = abbrList.join('_');
-
-  if (caseType === 'CAMEL') {
-    physicalName = snakeToCamel(physicalName);
-  } else {
-    physicalName = physicalName.toUpperCase();
-  }
-
-  return {
-    tokens,
-    physicalName,
-    hasNonStandard,
-    nonStandardWords,
-  };
-}
-
-/**
- * Resolves the physical data type based on domain name and database type.
- */
-export function resolveDataType(
-  domainName: string | undefined,
-  attributeName: any,
-  dbType: 'ORACLE' | 'POSTGRES' | 'MYSQL',
-  dict: StandardizationDictionary
-): string {
-  // If domain is not specified, try to infer from attribute name suffix
-  let inferredDomain = domainName;
-  if (!inferredDomain) {
-    const attrStr = typeof attributeName === 'string' ? attributeName : String(attributeName || '');
-    if (attrStr.endsWith('번호') || attrStr.endsWith('ID') || attrStr.endsWith('Id') || attrStr.endsWith('Seq')) {
-      inferredDomain = '번호';
-    } else if (attrStr.endsWith('일시') || attrStr.endsWith('시간') || attrStr.endsWith('시각')) {
-      inferredDomain = '일시';
-    } else if (attrStr.endsWith('코드') || attrStr.endsWith('구분코드')) {
-      inferredDomain = '코드';
-    } else if (attrStr.endsWith('여부')) {
-      inferredDomain = '여부';
-    } else if (attrStr.endsWith('이름') || attrStr.endsWith('명')) {
-      inferredDomain = '이름';
-    } else if (attrStr.endsWith('내용') || attrStr.endsWith('설명') || attrStr.endsWith('비고')) {
-      inferredDomain = '내용';
-    } else if (attrStr.endsWith('일자') || attrStr.endsWith('날짜')) {
-      inferredDomain = '일자';
-    } else if (attributeName.endsWith('금액') || attributeName.endsWith('값') || attributeName.endsWith('수량')) {
-      inferredDomain = '금액';
-    } else {
-      inferredDomain = '구분'; // Default fallback domain
-    }
-  }
-
-  const domain = dict.domains.find(d => d.logicalName === inferredDomain);
-  if (domain) {
-    if (dbType === 'ORACLE') return domain.dataTypeOracle;
-    if (dbType === 'POSTGRES') return domain.dataTypePostgres;
-    if (dbType === 'MYSQL') return domain.dataTypeMysql;
-  }
-
-  // Ultimate defaults if domain not resolved
-  if (dbType === 'ORACLE') return 'VARCHAR2(100)';
-  if (dbType === 'POSTGRES') return 'VARCHAR(100)';
-  return 'VARCHAR(100)';
-}
-
-function snakeToCamel(snake: string): string {
-  return snake
-    .toLowerCase()
-    .split('_')
-    .map((word, index) => {
-      if (index === 0) return word;
-      return word.charAt(0).toUpperCase() + word.slice(1);
-    })
-    .join('');
 }

@@ -54,6 +54,14 @@ import {
   ALL_CONCEPTUAL_DIAGRAM_ID,
   ALL_LOGICAL_DIAGRAM_ID,
   PROJECT_MARKER_FILE,
+  compilePhysicalModel,
+  generateDdl,
+  physicalSpecYaml,
+  physicalDiagramModel,
+  parseStandards,
+  serializeStandards,
+  addStandardWords,
+  parseOverrides,
 } from '@barker-modeler/model-core';
 import type {
   LogicalModel,
@@ -64,8 +72,10 @@ import type {
   SavedShapePosition,
   ModelLevel,
   ModelProject,
+  ProjectConfig,
+  StandardWord,
+  SubtypeSetRef,
 } from '@barker-modeler/model-core';
-import { parse as yamlParse } from 'yaml';
 
 import KonvaModelerCanvas from './components/KonvaModelerCanvas.js';
 import PropertiesPanel from './components/PropertiesPanel.js';
@@ -73,11 +83,10 @@ import ProjectExplorer from './components/ProjectExplorer.js';
 import StartScreen from './components/StartScreen.js';
 import DdlPane from './components/DdlPane.js';
 import DictionaryManager from './components/DictionaryManager.js';
-import PhysicalTransformWizard from './components/PhysicalTransformWizard.js';
 import ModelLinterModal from './components/ModelLinterModal.js';
 import RelationshipDiscoveryModal from './components/RelationshipDiscoveryModal.js';
 import DaBridgeModal from './components/DaBridgeModal.js';
-import { getDictionary, translateLogicalName, resolveDataType } from './services/dictionaryStorage.js';
+import SubtypeSetEditor from './components/SubtypeSetEditor.js';
 import { canvasTextMeasurer } from './services/textMeasure.js';
 import { projectFs, rememberRecentProject } from './services/projectFs.js';
 import { useWorkspace, type WorkLevel } from './stores/workspaceStore.js';
@@ -169,11 +178,9 @@ function Workspace() {
   const [isDdlModalOpen, setIsDdlModalOpen] = useState(false);
   const [ddlImportText, setDdlImportText] = useState('');
   const [isDictOpen, setIsDictOpen] = useState(false);
-  const [isTransformOpen, setIsTransformOpen] = useState(false);
   const [isLinterOpen, setIsLinterOpen] = useState(false);
   const [isDiscoveryOpen, setIsDiscoveryOpen] = useState(false);
   const [isDaBridgeOpen, setIsDaBridgeOpen] = useState(false);
-  const [ddlFocus, setDdlFocus] = useState<string | null>(null);
 
   useEffect(() => {
     document.title = `${project.config.name} - MinsDBModeler`;
@@ -288,6 +295,34 @@ function Workspace() {
     [model, selectedEntityName, applyModel]
   );
 
+  /** Subtype sets of one supertype. Writes where the sets already live (model-level or embedded) and keeps entity.supertype in sync. */
+  const handleUpdateSubtypeSets = useCallback(
+    (supertype: string, sets: SubtypeSetRef[]) => {
+      const members = new Set(sets.flatMap((s) => s.subtypes));
+      const modelLevel = (model.subtype_sets || []).some((s) => s.supertype === supertype);
+      const entities = model.entities.map((e) => {
+        if (e.name === supertype) {
+          return {
+            ...e,
+            type: sets.length ? 'supertype' : e.type === 'supertype' ? 'entity' : e.type,
+            subtype_sets: modelLevel ? undefined : sets.length ? sets : undefined,
+          } as Entity;
+        }
+        if (members.has(e.name)) return { ...e, type: 'subtype', supertype } as Entity;
+        if (e.supertype === supertype) return { ...e, type: 'entity', supertype: undefined } as Entity;
+        return e;
+      });
+      let subtype_sets = model.subtype_sets;
+      if (modelLevel) {
+        const mine = sets.map((s) => ({ name: s.name, discriminator: s.name, supertype, subtypes: s.subtypes, disjoint: s.disjoint, total: s.total }));
+        // an empty list would be read as "untouched" — keep one empty set to clear it
+        subtype_sets = [...(model.subtype_sets || []).filter((s) => s.supertype !== supertype), ...(mine.length ? mine : [{ supertype, subtypes: [], disjoint: true, total: true }])];
+      }
+      applyModel({ ...model, entities, subtype_sets }, `subsets:${supertype}`);
+    },
+    [model, applyModel]
+  );
+
   const handleAddAttribute = useCallback(() => {
     if (!selectedEntity) return;
     handleUpdateEntity({
@@ -386,67 +421,67 @@ function Workspace() {
   };
 
   /* -------------------------- physical projection -------------------------- */
-  const physicalContext = useMemo(() => {
-    let dict = getDictionary();
-    try {
-      const d = (yamlParse(project.standards.dictionary) as any) || {};
-      const m = (yamlParse(project.standards.domains) as any) || {};
-      dict = {
-        words: (d.words || []).map((w: any) => ({ logicalName: w.logicalName || w.logical || '', physicalAbbr: w.physicalAbbr || w.physical || '' })),
-        terms: (d.terms || []).map((t: any) => ({ logicalName: t.logicalName || t.logical || '', physicalName: t.physicalName || t.physical || '' })),
-        domains: (m.domains || []).map((x: any) => ({ logicalName: x.logicalName || x.logical || x.name || '', physicalName: x.physicalName || x.physical || x.type || '' })),
-        codes: d.codes || [],
-      };
-    } catch {}
-    const dbType = project.config.targetDbms === 'POSTGRESQL' ? 'POSTGRES' : project.config.targetDbms;
-    return { dict, dbType: dbType as 'ORACLE' | 'POSTGRES' | 'MYSQL' };
-  }, [project.standards, project.config.targetDbms]);
-
-  const physicalTableName = useCallback(
-    (ent: Entity): string => {
-      if (ent.physicalName) return ent.physicalName;
-      const segments = translateLogicalName(ent.name, physicalContext.dict, 'UPPER').physicalName.split('_');
-      const last = segments.length - 1;
-      const word = segments[last];
-      if (word && !['HIST', 'STATUS', 'CONTENT', 'AUDIT'].includes(word)) {
-        if (word.endsWith('Y')) segments[last] = word.slice(0, -1) + 'IES';
-        else if (/(S|CH|SH|X|Z)$/.test(word)) segments[last] = word + 'ES';
-        else segments[last] = word + 'S';
-      }
-      const name = `TB_${segments.join('_')}`;
-      return project.config.namingCase === 'LOWER_SNAKE' ? name.toLowerCase() : name;
-    },
-    [physicalContext, project.config.namingCase]
+  // Physical model and DDL are compiled from the whole logical model (FKs need every
+  // entity); the physical diagram then shows the tables of the current diagram's entities.
+  const needsPhysical = level === 'physical' || level === 'ddl';
+  const standards = useMemo(() => parseStandards(project.standards.dictionary, project.standards.domains), [project.standards]);
+  const allLogical = useMemo(
+    () => (needsPhysical ? deriveView(project, project.diagrams.find((d) => d.id === ALL_LOGICAL_DIAGRAM_ID)!) : null),
+    [needsPhysical, project]
   );
-
-  const physicalAttributes = useCallback(
-    (ent: Entity): Attribute[] =>
-      ent.attributes.map((attr) => {
-        const col = attr.physicalName || translateLogicalName(attr.name, physicalContext.dict, 'UPPER').physicalName;
-        return {
-          ...attr,
-          name: project.config.namingCase === 'LOWER_SNAKE' ? col.toLowerCase() : col,
-          domain: resolveDataType(attr.domain, attr.name, physicalContext.dbType, physicalContext.dict),
-        };
-      }),
-    [physicalContext, project.config.namingCase]
+  const physical = useMemo(
+    () =>
+      allLogical
+        ? compilePhysicalModel(allLogical, {
+            dbms: project.config.targetDbms,
+            subtypeStrategy: project.config.subtypeStrategy,
+            namingCase: project.config.namingCase,
+            dictionary: standards,
+            overrides: parseOverrides(project.physical.overrides),
+          })
+        : null,
+    [allLogical, project.config, standards, project.physical.overrides]
   );
+  const physicalView = useMemo(() => {
+    if (!physical || level !== 'physical') return null;
+    const { model: pm, tableNameOf } = physicalDiagramModel(physical);
+    const inView = new Set(model.entities.map((e) => e.name));
+    const keep = new Set(physical.tables.filter((t) => t.entities.some((n) => inView.has(n))).map((t) => t.entity));
+    return {
+      model: { ...pm, entities: pm.entities.filter((e) => keep.has(e.name)), relationships: pm.relationships.filter((r) => keep.has(r.parent) && keep.has(r.child)) },
+      tableNameOf,
+    };
+  }, [physical, level, model]);
+  const ddlPath = `output/${project.config.name.replace(/[\s/\\:*?"<>|]+/g, '_')}.sql`;
+  const liveDdl = useMemo(() => (physical && level === 'ddl' ? generateDdl(physical, { title: project.config.name }) : ''), [physical, level, project.config.name]);
+
+  const updatePhysicalConfig = (patch: Partial<ProjectConfig>) => commit((p) => ({ ...p, config: { ...p.config, ...patch } }));
+  const registerStandardWords = (words: StandardWord[]) =>
+    commit((p) => {
+      const next = serializeStandards(addStandardWords(parseStandards(p.standards.dictionary, p.standards.domains), words));
+      return { ...p, standards: { ...p.standards, dictionary: next.dictionary, domains: next.domains } };
+    });
+  const saveDdlOutputs = () => {
+    if (!physical) return;
+    const ddl = generateDdl(physical, { title: project.config.name });
+    commit((p) => ({ ...p, outputs: { ...p.outputs, [ddlPath]: ddl, [ddlPath.replace(/\.sql$/, '-physical.yaml')]: physicalSpecYaml(physical) } }));
+  };
 
   /* ------------------------------ diagram layout ------------------------------ */
   const [livePositions, setLivePositions] = useState<Record<string, SavedShapePosition>>({});
   useEffect(() => setLivePositions({}), [diagram.id]);
   const savedPositions = useMemo(() => positionsByName(project, diagram), [project, diagram]);
 
+  const canvasModel = physicalView?.model ?? model;
   const layoutFor = useCallback(
     (positions: Record<string, SavedShapePosition>) =>
-      layoutBarkerDiagram(model, {
+      layoutBarkerDiagram(canvasModel, {
         positions,
         measureText: canvasTextMeasurer,
-        labelOf: level === 'physical' ? physicalTableName : undefined,
-        attributesOf: level === 'physical' ? physicalAttributes : undefined,
-        showDomains: level === 'physical',
+        labelOf: physicalView ? (ent: Entity) => physicalView.tableNameOf.get(ent.name) || ent.name : undefined,
+        showDomains: !!physicalView,
       }),
-    [model, level, physicalTableName, physicalAttributes]
+    [canvasModel, physicalView]
   );
   const diagramLayout = useMemo(() => layoutFor({ ...savedPositions, ...livePositions }), [layoutFor, savedPositions, livePositions]);
 
@@ -477,9 +512,9 @@ function Workspace() {
 
   // Freeze automatically placed shapes once so later additions don't reshuffle the diagram.
   useEffect(() => {
-    if (Object.keys(livePositions).length) return;
+    if (Object.keys(livePositions).length || level === 'physical') return;
     if (diagramLayout.roots.some((r) => !savedPositions[r.entity])) persistPositions(rootPositionsOf(diagramLayout, savedPositions), false);
-  }, [diagramLayout, savedPositions, livePositions, persistPositions]);
+  }, [diagramLayout, savedPositions, livePositions, persistPositions, level]);
 
   const handleRootMove = useCallback(
     (name: string, pos: { x: number; y: number }, final: boolean) => {
@@ -577,7 +612,7 @@ function Workspace() {
 
   /* ----------------------- modals fed from the repository ----------------------- */
   const legacyFiles = useMemo(() => {
-    if (!isDictOpen && !isTransformOpen) return [];
+    if (!isDictOpen) return [];
     const all = project.diagrams.find((d) => d.id === ALL_LOGICAL_DIAGRAM_ID)!;
     return [
       { name: 'standardization/dictionary.yaml', content: project.standards.dictionary },
@@ -588,21 +623,11 @@ function Workspace() {
       },
       { name: 'logical/model.yaml', content: stringifyModel(deriveView(project, all)) },
     ];
-  }, [project, isDictOpen, isTransformOpen]);
+  }, [project, isDictOpen]);
 
   const handleUpdateStandardsFile = (filename: string, content: string) => {
     if (filename.endsWith('dictionary.yaml')) commit((p) => ({ ...p, standards: { ...p.standards, dictionary: content } }));
     if (filename.endsWith('domains.yaml')) commit((p) => ({ ...p, standards: { ...p.standards, domains: content } }));
-  };
-
-  const outputBase = `output/${(diagram.includeAll ? project.config.name : diagram.name).replace(/[\s/\\:*?"<>|]+/g, '_')}.yaml`;
-  const handleSaveOutput = (filename: string, content: string) => {
-    const path = filename.startsWith('output/') ? filename : `output/${filename.replace(/^.*\//, '')}`;
-    commit((p) => ({ ...p, outputs: { ...p.outputs, [path]: content } }));
-    if (/\.(sql|ddl)$/i.test(path)) {
-      setDdlFocus(path);
-      ws.setLevel('ddl');
-    }
   };
 
   /* ------------------------------ YAML editor ------------------------------ */
@@ -705,6 +730,24 @@ function Workspace() {
             options={project.conceptual.entities.filter((c) => !c.realizes?.includes(selectedEntity.id!))}
             onPick={(id) => commit((p) => linkRealization(p, id, selectedEntity.id!))}
           />
+        </TraceBox>
+      )}
+      {modelLevel === 'logical' && level === 'logical' && <SubtypeSetEditor model={model} entity={selectedEntity} onChange={handleUpdateSubtypeSets} />}
+      {level === 'physical' && physical && (
+        <TraceBox title="물리 테이블">
+          {physical.tables
+            .filter((t) => t.entities.includes(selectedEntity.name))
+            .map((t) => (
+              <span key={t.name} className="trace-chip">
+                <button title={t.entities.length > 1 ? `통합된 엔터티: ${t.entities.join(', ')}` : ''}>
+                  {t.name}
+                  {t.entity !== selectedEntity.name ? ` (← ${t.entity})` : ''}
+                </button>
+              </span>
+            ))}
+          <div className="ddl-hint" style={{ marginTop: 4 }}>
+            물리명은 위 "물리 테이블명"·속성 물리명에서 지정하거나, 비워 두면 표준 단어 사전으로 만들어집니다.
+          </div>
         </TraceBox>
       )}
       <TraceBox title="포함된 다이어그램">
@@ -898,17 +941,28 @@ function Workspace() {
               </div>
               <div className="level-context">
                 {level === 'ddl' ? (
-                  <span>대상 DBMS · {project.config.targetDbms}</span>
+                  <span>대상 DBMS · {project.config.targetDbms} · 논리 모델 전체에서 실시간 생성</span>
                 ) : (
                   <>
                     <span className="level-diagram">{diagram.name}</span>
                     <span className="tree-meta">
                       엔터티 {model.entities.length} · 관계 {model.relationships.length}
                     </span>
-                    {level === 'physical' && (
-                      <button className="btn btn-secondary" style={{ height: 26 }} onClick={() => setIsTransformOpen(true)}>
-                        <FileCode size={13} /> DDL 생성
-                      </button>
+                    {level === 'physical' && physical && (
+                      <>
+                        <span className="tree-meta">
+                          테이블 {physicalView?.model.entities.length ?? 0} · {project.config.targetDbms} ·{' '}
+                          {{ ROLL_UP: '서브타입 통합', ROLL_DOWN: '서브타입 분리', IDENTITY: '서브타입 1:1' }[project.config.subtypeStrategy]}
+                        </span>
+                        {physical.nonStandardWords.length > 0 && (
+                          <span className="tree-meta" style={{ color: '#a16207' }} title="DDL 탭에서 약어를 등록할 수 있습니다">
+                            미등록 단어 {physical.nonStandardWords.length}
+                          </span>
+                        )}
+                        <button className="btn btn-secondary" style={{ height: 26 }} onClick={() => switchLevel('ddl')}>
+                          <FileCode size={13} /> DDL 보기
+                        </button>
+                      </>
                     )}
                   </>
                 )}
@@ -916,28 +970,30 @@ function Workspace() {
             </div>
             <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
               {level === 'ddl' ? (
-                <DdlPane
-                  outputs={project.outputs}
-                  targetDbms={project.config.targetDbms}
-                  focusPath={ddlFocus}
-                  onGenerate={() => {
-                    ws.setActiveDiagram(ALL_LOGICAL_DIAGRAM_ID);
-                    ws.setLevel('ddl');
-                    setIsTransformOpen(true);
-                  }}
-                  onChange={(path, content) => commit((p) => ({ ...p, outputs: { ...p.outputs, [path]: content } }), { coalesce: `out:${path}` })}
-                  onDelete={(path) =>
-                    commit((p) => {
-                      const outputs = { ...p.outputs };
-                      delete outputs[path];
-                      return { ...p, outputs };
-                    })
-                  }
-                />
+                physical && (
+                  <DdlPane
+                    physical={physical}
+                    liveDdl={liveDdl}
+                    config={project.config}
+                    onConfigChange={updatePhysicalConfig}
+                    ddlPath={ddlPath}
+                    outputs={project.outputs}
+                    onSave={saveDdlOutputs}
+                    onRegisterWords={registerStandardWords}
+                    onChange={(path, content) => commit((p) => ({ ...p, outputs: { ...p.outputs, [path]: content } }), { coalesce: `out:${path}` })}
+                    onDelete={(path) =>
+                      commit((p) => {
+                        const outputs = { ...p.outputs };
+                        delete outputs[path];
+                        return { ...p, outputs };
+                      })
+                    }
+                  />
+                )
               ) : (
                 <KonvaModelerCanvas
                   layout={diagramLayout}
-                  relationships={model.relationships}
+                  relationships={canvasModel.relationships}
                   selectedEntityName={selectedEntityName}
                   selectedRelationshipId={selectedRelationshipId}
                   viewMode={level === 'physical' ? 'physical' : 'logical'}
@@ -1037,15 +1093,6 @@ function Workspace() {
 
       {isDictOpen && <DictionaryManager model={model} projectFiles={legacyFiles} onUpdateFile={handleUpdateStandardsFile} onClose={() => setIsDictOpen(false)} />}
 
-      {isTransformOpen && (
-        <PhysicalTransformWizard
-          model={deriveView(project, project.diagrams.find((d) => d.id === activeDiagram.logical) || project.diagrams.find((d) => d.id === ALL_LOGICAL_DIAGRAM_ID)!)}
-          projectFiles={legacyFiles}
-          activeFileName={outputBase}
-          onClose={() => setIsTransformOpen(false)}
-          onSavePhysicalFile={handleSaveOutput}
-        />
-      )}
 
       <ModelLinterModal
         isOpen={isLinterOpen}
