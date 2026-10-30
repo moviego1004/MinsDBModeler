@@ -340,6 +340,7 @@ export function parseDaNativeFile(buffer: Uint8Array, fileName?: string): Logica
       parent_participation: '0..M' as const,
       child_participation: '1..1' as const,
       identifying: false,
+      fk_attributes: [r.fkAttr],
     }));
 
   // If file doesn't match this DAP dataset, fallback to clean FK matching

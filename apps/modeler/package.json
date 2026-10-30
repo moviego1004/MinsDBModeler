@@ -12,6 +12,7 @@
   "dependencies": {
     "@barker-modeler/model-core": "*",
     "@monaco-editor/react": "^4.6.0",
+    "@tauri-apps/api": "^2.12.4",
     "@xyflow/react": "^12.0.0",
     "konva": "^10.3.0",
     "lucide-react": "^0.344.0",

@@ -1,6 +1,6 @@
 # MinsDBModeler 고도화 개발 계획 및 아키텍처 진단 보고서
 
-> **작성일자:** 2026-10-29  
+> **작성일자:** 2026-10-29 (최종 갱신: 2026-10-30 — Phase 7 프로젝트 저장소 구조 전환)  
 > **대상 프로젝트:** MinsDBModeler (Tauri + React + Konva + TypeScript)  
 > **참조 벤치마크:** DATAWARE™ DA# 5 (Modeler, API, Reverse Architecture)
 
@@ -79,6 +79,8 @@ graph TD
 ## 2. 권장 저장소 및 아키텍처 설계
 
 ### 2.1 Git 친화적 분할 저장 구조 (File System Architecture)
+
+> **2026-10-30 갱신:** 아래 초안은 Phase 7에서 실제 폴더 저장 구조로 구현되었습니다. 확정된 레이아웃은 **Phase 7.1**을 따릅니다.
 
 Git diff의 장점을 극대화하면서도 대규모 모델을 수용하기 위해, 단일 YAML 대신 **폴더 기반 모듈형 YAML 구조**를 채택합니다. (dbt, OpenAPI의 표준 방식과 동일)
 
@@ -209,3 +211,98 @@ flowchart LR
   - **DA# 고유 비주얼 일치화**: 슈퍼타입 본체 연녹색(`#e8f0d8`) 배경 및 10px 라운딩, 서브타입 세트 황금색 틴트 구획(`#fef9c3`), 서브타입 엔터티(`개인`) 순백색 본체와 선명한 테두리 및 속성 목록(`직위`, `직장전화`, `소속회사코드 (FK)`), 알약(Pill)형 무속성 서브타입(`단체`)의 시각 디자인 완성.
   - **4계층(Layering) 렌더링 및 클러스터 드래그**: 슈퍼타입 컨테이너 -> 서브타입 세트 -> 관계선 -> 서브타입 엔터티 순의 z-index 계층 렌더링을 적용하여 관계선이 슈퍼타입 내부를 가로질러 서브타입에 연결되는 모습을 선명하게 표현. 슈퍼타입 이동 시 내장 서브타입들이 함께 따라 움직이는 동기화 드래그 완비.
   - **다단계(2-Level) 서브타입 지원**: `행사` -> `연중행사` -> (`9월회의`, `11월회의`, `1월연례교육`, `4월회의`) 계층 구조까지 완벽 지원.
+
+
+---
+
+## 4. Phase 7: 프로젝트 저장소(Repository) 구조 전환 (2026-10-30)
+
+### 4.0 배경: 2026-10-30 구조 검토 결과
+
+Phase 1~6 이후에도 남아 있던 근본 문제는 **"파일 하나 = 저장 단위 = 주제영역 = 다이어그램"**이 한 몸이라는 점이었습니다.
+
+| 문제 | 실제 확인 내용 | 영향 |
+| :--- | :--- | :--- |
+| 엔터티 중복 정의 | 기본 프로젝트에서 44개 엔터티가 여러 파일에 따로 정의됨 (예: `KERI식별자`, `KEL` 3곳) | 한 곳 수정이 다른 곳에 반영 안 됨, 통합 다이어그램 불가 |
+| 단계 연결이 파일명 추측 | `conceptual`/`logical` 파일명, `'QVI 개념 모델'` 문자열 하드코딩, 상세화 = 엔터티 복사 | 개념↔논리↔물리↔DDL 왕복 불가, 추적 링크 없음 |
+| 물리/DDL 단절 | 변환 마법사가 스냅샷 파일 생성 | 논리 수정 시 물리·DDL이 따라오지 않음 |
+| 프로젝트 = localStorage 덩어리 | `prompt()` 기반 생성, 기본 프로젝트 자동 재초기화(사용자 수정분 유실 위험) | Tauri 앱이지만 실제 폴더/Git 미사용 |
+| 데이터 오류 | `user-account.yaml`과 `application-lifecycle.yaml` 내용 동일 | 예제 데이터 신뢰도 저하 |
+
+**결정 (사용자 승인):** DA#과 같은 **"저장소 하나 + 여러 뷰"** 구조로 전환한다. 데스크톱(Tauri) 전용. 개념 모델은 별도 객체로 두고 논리 엔터티로 1:N 추적 링크(`realizes`)를 건다.
+
+### 4.1 확정된 프로젝트 폴더 구조 — 완료
+
+```text
+MyProject/                         ← 프로젝트 = 디스크 폴더 (Git 저장소)
+  minsmodeler.yaml                 ← 프로젝트 설정 + 프로젝트 폴더 표식 (대상 DBMS, 명명 규칙, 서브타입 전략)
+  model/
+    entities/<entityId>.yaml       ← 논리 엔터티 1개 = 파일 1개 (원본). 파일명은 불변 ID
+    relationships.yaml             ← parent/child 는 엔터티 ID
+    subtype-sets.yaml              ← (있을 때만) supertype/subtypes 는 ID
+    rules.yaml                     ← 프로젝트 공통 업무규칙
+  conceptual/
+    entities.yaml                  ← 개념 엔터티 + realizes: [논리 엔터티 ID…]
+    relationships.yaml
+  diagrams/<diagramId>.yaml        ← 뷰: level, members(ID 목록), positions(ID→좌표)만 저장
+  standards/dictionary.yaml        ← 표준 단어/용어/코드
+  standards/domains.yaml           ← 표준 도메인
+  physical/overrides.yaml          ← 물리 전용 차이분
+  output/**                        ← 생성 산출물(DDL, 물리 사양) — 직접 편집하지 않는 것이 원칙
+```
+
+* 모든 참조는 **불변 ID**. 엔터티 이름을 바꿔도 관계·서브타입·다이어그램·추적 링크가 깨지지 않음.
+* 다이어그램에서 도형을 옮기면 `diagrams/<id>.yaml` **한 파일만** 바뀜 (단위 테스트로 보장).
+* 직렬화는 키 순서·정렬이 고정된 canonical YAML → `serialize(deserialize(x)) === x` 테스트로 보장.
+* 저장은 **변경된 파일만** 쓰고, 사라진 파일만 지움(관리 대상 폴더 한정).
+
+### 4.2 구현 내역 — 완료
+
+| 영역 | 파일 | 내용 |
+| :--- | :--- | :--- |
+| 저장소 타입 | `packages/model-core/src/project/types.ts` | `ModelProject`, `ProjectConfig`, `ConceptualEntity(realizes)`, `DiagramView(level, includeAll, members, positions)`, 안정 ID(`stableHash`)·신규 ID(`newId`) |
+| 폴더 직렬화 | `project/serialization.ts` | `serializeProject` / `deserializeProject`(손상 파일은 경고만) / `diffProjectFiles`(쓰기·삭제 목록) / `isManagedPath` |
+| 뷰 ↔ 저장소 | `project/views.ts` | `deriveView`(ID 기반 저장소 → 이름 기반 `LogicalModel`), `applyViewEdits`(편집 결과를 ID로 되돌려 반영), 슈퍼타입 멤버의 서브타입 자동 포함, `addToDiagram`/`removeFromDiagram`, 좌표 이름↔ID 변환 |
+| 병합/가져오기 | `project/merge.ts` | `mergeModelInto`(이름으로 엔터티 병합·속성 합집합·중복 관계 제거·새 다이어그램 생성), `importLegacyProject`(이전 버전 localStorage 프로젝트 → 저장소, 2-pass로 파일 간 참조 해결) |
+| 추적 링크 | `project/trace.ts` | `refineConceptualEntity`(상세화: 같은 이름 재사용 또는 key_attributes로 생성 + 링크 + 다이어그램 추가), `logicalRealizations`, `conceptualSources`, `link/unlinkRealization`, `createEntity` |
+| Tauri 파일 I/O | `apps/modeler/src-tauri/src/project_fs.rs` | `read_project_files`, `write_project_files`(관리 폴더·상대경로만 허용, `..`/절대경로 거부), `inspect_folder`, `pick_folder`(tauri-plugin-dialog) + Rust 단위 테스트 2건 |
+| 프론트 FS 어댑터 | `apps/modeler/src/services/projectFs.ts` | Tauri 구현 + 브라우저 개발용 가상 폴더(개발 전용, 화면에 표시), 최근 프로젝트, 이전 버전 데이터 조회 |
+| 워크스페이스 스토어 | `apps/modeler/src/stores/workspaceStore.ts` | Zustand. 정규화된 프로젝트 1개, 스냅샷 Undo/Redo(100단계, 연속 입력 병합), 단계 탭, 단계별 활성 다이어그램, ID 기반 선택 |
+| 앱 셸 | `apps/modeler/src/App.tsx` (3,319줄 → 약 1,000줄) | 시작 화면 ↔ 워크스페이스, 400ms 디바운스 자동 저장(변경 파일만), 개념/논리/물리/DDL 탭, 탭 전환 시 추적 링크로 선택 이동, 가져오기(YAML·DA#·DDL·DA# 브릿지)는 모두 프로젝트에 병합 + 새 다이어그램 |
+| UI 컴포넌트 | `components/StartScreen.tsx`, `ProjectExplorer.tsx`, `PropertiesPanel.tsx`, `DdlPane.tsx` | 새 프로젝트 마법사(이름·위치·DBMS·명명 규칙·서브타입 전략·빈/예제/이전 데이터), DA# Browser식 트리(단계별 주제영역 다이어그램 + 객체 목록), 기존 속성 편집기 분리 + 추적/소속 다이어그램 섹션, DDL 산출물 편집기 |
+| 정리 | 삭제: `services/projectStorage.ts`, 미사용 `useModelStore`/`useDiagramStore`, React Flow 잔재 `Custom*Node/Edge` | 파괴적 기본 프로젝트 재초기화 로직 제거 |
+
+### 4.3 사용 흐름
+
+1. **시작 화면:** 새 프로젝트 / 프로젝트 열기 / 최근 프로젝트. 새 프로젝트는 위치·대상 DBMS·명명 규칙·서브타입 변환 전략을 정하고 시작 내용(빈 프로젝트, QVI 예제, 이전 버전 데이터 가져오기)을 고름.
+2. **다이어그램 = 뷰:** 단계마다 "전체" 다이어그램이 기본으로 있고, 주제영역 다이어그램은 엔터티 ID 목록만 가짐. 같은 엔터티를 여러 다이어그램에 올려도 정의는 하나.
+3. **삭제 의미 구분:** "엔터티 삭제" = 모델에서 삭제(모든 다이어그램·관계에서 제거), "현재 다이어그램에서 제거" = 뷰에서만 뺌.
+4. **단계 왕복:** 상단 탭 `개념 | 논리 | 물리 | DDL`. 선택한 엔터티는 추적 링크를 따라 다음 단계에서도 선택됨. 개념 엔터티 더블클릭 → 연결된 논리 엔터티로 이동(없으면 상세화 제안).
+5. **물리:** 논리 모델에서 매번 즉석 변환(표준 사전·대상 DBMS·명명 규칙 반영). **DDL:** 변환 마법사로 생성해 `output/`에 저장, DDL 탭에서 확인·편집.
+
+### 4.4 검증
+
+* model-core 테스트 38개 통과 (Phase 7 신규 7개: 레거시 병합·무손실 왕복·좌표 변경 시 단일 파일 diff·이름 변경 시 링크 유지·추가/삭제/뷰 제거·서브타입 자동 포함·상세화 추적)
+* Rust 테스트 2개 통과 (경로 탈출 차단, 파일 왕복)
+* 앱 타입체크·빌드 통과, 브라우저 E2E: 예제로 새 프로젝트 생성 → 주제영역 이동 → 개념에서 `법인회원` 선택 후 논리 탭 전환 시 같은 엔터티 선택 → 이름 변경이 전체 다이어그램에 반영 → Undo → 물리/DDL 탭 → 새로고침 후 최근 프로젝트로 다시 열기
+
+### 4.5 함께 반영: Barker 렌더링 엔진 (2026-10-30)
+
+슈퍼타입 안에 서브타입이 들어가지 않고 엔터티가 흩어져 그려지던 문제(`test/mins_회원.png` ↔ `test/da_회원.png`)를 if-else가 아닌 범용 엔진으로 해결했습니다.
+
+* `packages/model-core/src/rendering/subtypeHierarchy.ts` — 모델 수준 `subtype_sets`, 엔터티 내장 `subtype_sets`, `supertype` 세 가지 표기를 하나의 계층으로 정규화(순환·미정의 참조 제거)
+* `rendering/barkerLayout.ts` — 2-pass 박스 레이아웃(아래→위 크기 측정, 위→아래 배치). 깊이에 무관한 단일 재귀 경로, 서브타입 세트 구획(판별자 라벨), 속성 없는 서브타입은 알약형, 상속 속성 중복 표시 제거, FK·독립 엔터티 판정은 관계 정보 기반, 루트는 계층형(Sugiyama식) 자동 배치
+* `rendering/barkerRouting.ts` — 루트 박스끼리 라우팅 후 중첩 서브타입으로 수직 진입(DA# '소속회사로서' 방식), Z형 경로의 가운데 선을 다른 박스와 겹치지 않는 위치로 이동, 재귀 관계 고리
+* `KonvaModelerCanvas.tsx` — 엔진 출력만 그리는 렌더러로 교체(엔터티 종류별 분기 없음)
+* 검증 픽스처: `packages/model-core/tests/fixtures/community-da.yaml`(DA# 지역커뮤니티 캡처 기준)
+
+### 4.6 남은 과제 (다음 단계)
+
+| 우선순위 | 항목 | 내용 |
+| :---: | :--- | :--- |
+| 1 | DA# 파서 범용화 | `doc/DA#_파일포맷_분석.md`(REA 분석)를 근거로 `daNativeParser.ts`의 샘플 하드코딩(서브타입 맵·16개 관계) 제거 |
+| 2 | 물리 모델 정식화 | 서브타입 변환 전략(통합/분리)을 물리 탭 렌더링에 반영(현재는 논리 구조 그대로 표시), `physical/overrides.yaml` 편집 UI(테이블명·인덱스) |
+| 3 | DDL 컴파일러 분리 | 변환 마법사 내부 로직을 `model-core` 순수 함수로 분리 → DDL 탭에서 항상 최신 DDL 미리보기, 이전 산출물과 diff |
+| 4 | 표준 단어 검증 흐름 | 마법사가 미등록 단어가 하나라도 있으면 DDL 생성을 막음(예제 기준 267개) → 일괄 등록/경고 후 진행 옵션 검토 |
+| 5 | 관계선 회피 고도화 | 현재는 Z형 경로의 가운데 선만 장애물 회피 → 세로 구간 우회 포함 |
+| 6 | 외부 변경 감지 | Git pull 등으로 폴더가 바뀌면 다시 읽기(파일 감시) |

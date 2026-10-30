@@ -1,0 +1,163 @@
+# DA# "(3.고급)31. 지역커뮤니티" sample, transcribed from the DA# 5 diagram capture (test/da_capture.png).
+# Used to check that MinsDBModeler renders Barker subtypes the way DA# does.
+subject_area: 지역커뮤니티
+notation: Barker logical model
+entities:
+  - name: 회사
+    type: entity
+    identifier: 회사코드
+    attributes:
+      - { name: 회사코드, identifier: true, required: true }
+      - { name: 회사명, required: true }
+      - { name: 주소, required: true }
+      - { name: 업종, required: true }
+  - name: 회비
+    type: entity
+    identifier: [납부회원번호, 납부연도]
+    attributes:
+      - { name: 납부회원번호, identifier: true, required: true }
+      - { name: 납부연도, identifier: true, required: true }
+  - name: 회원
+    type: supertype
+    identifier: 회원번호
+    attributes:
+      - { name: 회원번호, identifier: true, required: true }
+      - { name: 회원명, required: true }
+      - { name: 우편주소, required: true }
+      - { name: 회원권종류, required: true }
+      - { name: 유효기간일자, required: true }
+    subtype_sets:
+      - { name: 회원권종류, disjoint: true, total: true, subtypes: [개인, 단체] }
+  - name: 개인
+    type: subtype
+    supertype: 회원
+    identifier: []
+    attributes:
+      - { name: 직위, required: false }
+      - { name: 직장전화, required: false }
+      - { name: 소속회사코드, required: false }
+  - name: 단체
+    type: subtype
+    supertype: 회원
+    identifier: []
+    attributes: []
+  - name: 행사
+    type: supertype
+    identifier: 행사ID
+    attributes:
+      - { name: 행사ID, identifier: true, required: true }
+      - { name: 행사명, required: true }
+      - { name: 행사일자, required: true }
+      - { name: 행사종류, required: true }
+      - { name: 행사설명, required: true }
+      - { name: 예상참가자수, required: true }
+      - { name: 개최지, required: true }
+      - { name: 소요경비, required: true }
+      - { name: 설문ID, required: true }
+    subtype_sets:
+      - { name: 행사종류, disjoint: true, total: true, subtypes: [연중행사, 특별행사] }
+  - name: 연중행사
+    type: subtype
+    supertype: 행사
+    identifier: []
+    attributes: []
+    subtype_sets:
+      - { name: 회의구분, disjoint: true, total: true, subtypes: [9월회의, 11월회의, 1월연례교육, 4월회의] }
+  - { name: 특별행사, type: subtype, supertype: 행사, identifier: [], attributes: [] }
+  - { name: 9월회의, type: subtype, supertype: 연중행사, identifier: [], attributes: [] }
+  - { name: 11월회의, type: subtype, supertype: 연중행사, identifier: [], attributes: [] }
+  - { name: 1월연례교육, type: subtype, supertype: 연중행사, identifier: [], attributes: [] }
+  - { name: 4월회의, type: subtype, supertype: 연중행사, identifier: [], attributes: [] }
+  - name: 설문
+    type: entity
+    identifier: 설문ID
+    attributes:
+      - { name: 설문ID, identifier: true, required: true }
+      - { name: 설문내용, required: true }
+  - name: 행사별익명답변자
+    type: entity
+    identifier: [행사ID, 답변자일련번호]
+    attributes:
+      - { name: 행사ID, identifier: true, required: true }
+      - { name: 답변자일련번호, identifier: true, required: true }
+  - name: 설문문항
+    type: entity
+    identifier: [설문ID, 설문문항번호]
+    attributes:
+      - { name: 설문ID, identifier: true, required: true }
+      - { name: 설문문항번호, identifier: true, required: true }
+      - { name: 설문문항내용, required: true }
+  - name: 행사참여
+    type: entity
+    identifier: [회원번호, 행사ID]
+    attributes:
+      - { name: 회원번호, identifier: true, required: true }
+      - { name: 행사ID, identifier: true, required: true }
+  - name: 설문응답
+    type: entity
+    identifier: [행사ID, 답변자일련번호, 설문ID, 설문문항번호]
+    attributes:
+      - { name: 행사ID, identifier: true, required: true }
+      - { name: 답변자일련번호, identifier: true, required: true }
+      - { name: 설문ID, identifier: true, required: true }
+      - { name: 설문문항번호, identifier: true, required: true }
+      - { name: 답변문항보기번호, required: true }
+  - name: 설문지보기
+    type: entity
+    identifier: [설문ID, 설문문항번호, 보기번호]
+    attributes:
+      - { name: 설문ID, identifier: true, required: true }
+      - { name: 설문문항번호, identifier: true, required: true }
+      - { name: 보기번호, identifier: true, required: true }
+      - { name: 보기내용, required: true }
+  - name: 회원_플랫폼
+    type: entity
+    identifier: [회원번호, 관심플랫폼ID]
+    attributes:
+      - { name: 회원번호, identifier: true, required: true }
+      - { name: 관심플랫폼ID, identifier: true, required: true }
+  - name: 회원관심응용분야
+    type: entity
+    identifier: [회원번호, 관심응용분야ID]
+    attributes:
+      - { name: 회원번호, identifier: true, required: true }
+      - { name: 관심응용분야ID, identifier: true, required: true }
+  - name: 컴퓨터플랫폼
+    type: supertype
+    identifier: 플랫폼ID
+    attributes:
+      - { name: 플랫폼ID, identifier: true, required: true }
+      - { name: 플랫폼명, required: true }
+    subtype_sets:
+      - { name: 플랫폼구분, disjoint: true, total: true, subtypes: [메인프레임, 유닉스서버] }
+  - { name: 메인프레임, type: subtype, supertype: 컴퓨터플랫폼, identifier: [], attributes: [] }
+  - { name: 유닉스서버, type: subtype, supertype: 컴퓨터플랫폼, identifier: [], attributes: [] }
+  - name: 응용분야
+    type: supertype
+    identifier: 응용분야ID
+    attributes:
+      - { name: 응용분야ID, identifier: true, required: true }
+      - { name: 응용분야명칭, required: true }
+      - { name: 상위응용분야ID, required: false }
+    subtype_sets:
+      - { name: 응용분야구분, disjoint: true, total: true, subtypes: [회계, 인사, 광업] }
+  - { name: 회계, type: subtype, supertype: 응용분야, identifier: [], attributes: [] }
+  - { name: 인사, type: subtype, supertype: 응용분야, identifier: [], attributes: [] }
+  - { name: 광업, type: subtype, supertype: 응용분야, identifier: [], attributes: [] }
+relationships:
+  - { id: R01, name: 소속회사로서, parent: 회사, child: 개인, cardinality: one_to_many, parent_participation: 0..M, child_participation: 0..1, fk_attributes: [소속회사코드] }
+  - { id: R02, name: 회비납부, parent: 회원, child: 회비, cardinality: one_to_many, parent_participation: 0..M, child_participation: 1..1, identifying: true, fk_attributes: [납부회원번호] }
+  - { id: R03, parent: 회원, child: 행사참여, cardinality: one_to_many, parent_participation: 0..M, child_participation: 1..1, identifying: true, fk_attributes: [회원번호] }
+  - { id: R04, parent: 행사, child: 행사참여, cardinality: one_to_many, parent_participation: 0..M, child_participation: 1..1, identifying: true, fk_attributes: [행사ID] }
+  - { id: R05, parent: 행사, child: 행사별익명답변자, cardinality: one_to_many, parent_participation: 0..M, child_participation: 1..1, identifying: true, fk_attributes: [행사ID] }
+  - { id: R06, name: 설문ID, parent: 설문, child: 행사, cardinality: one_to_many, parent_participation: 0..M, child_participation: 1..1, fk_attributes: [설문ID] }
+  - { id: R07, parent: 설문, child: 설문문항, cardinality: one_to_many, parent_participation: 0..M, child_participation: 1..1, identifying: true, fk_attributes: [설문ID] }
+  - { id: R08, parent: 설문문항, child: 설문지보기, cardinality: one_to_many, parent_participation: 0..M, child_participation: 1..1, identifying: true, fk_attributes: [설문ID, 설문문항번호] }
+  - { id: R09, parent: 설문문항, child: 설문응답, cardinality: one_to_many, parent_participation: 0..M, child_participation: 1..1, identifying: true, fk_attributes: [설문ID, 설문문항번호] }
+  - { id: R10, name: 설문답안으로, parent: 설문지보기, child: 설문응답, cardinality: one_to_many, parent_participation: 0..M, child_participation: 1..1, fk_attributes: [답변문항보기번호] }
+  - { id: R11, parent: 행사별익명답변자, child: 설문응답, cardinality: one_to_many, parent_participation: 0..M, child_participation: 1..1, identifying: true, fk_attributes: [행사ID, 답변자일련번호] }
+  - { id: R12, parent: 회원, child: 회원_플랫폼, cardinality: one_to_many, parent_participation: 0..M, child_participation: 1..1, identifying: true, fk_attributes: [회원번호] }
+  - { id: R13, parent: 컴퓨터플랫폼, child: 회원_플랫폼, cardinality: one_to_many, parent_participation: 0..M, child_participation: 1..1, identifying: true, fk_attributes: [관심플랫폼ID] }
+  - { id: R14, parent: 회원, child: 회원관심응용분야, cardinality: one_to_many, parent_participation: 0..M, child_participation: 1..1, identifying: true, fk_attributes: [회원번호] }
+  - { id: R15, parent: 응용분야, child: 회원관심응용분야, cardinality: one_to_many, parent_participation: 0..M, child_participation: 1..1, identifying: true, fk_attributes: [관심응용분야ID] }
+  - { id: R16, name: 상위응용분야ID, parent: 응용분야, child: 응용분야, cardinality: one_to_many, parent_participation: 0..M, child_participation: 0..1, recursive: true, fk_attributes: [상위응용분야ID] }

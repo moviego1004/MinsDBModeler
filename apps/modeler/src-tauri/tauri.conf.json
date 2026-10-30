@@ -1,8 +1,8 @@
 {
   "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "mins-db-modeler",
+  "productName": "MinsDBModeler",
   "version": "0.1.0",
-  "identifier": "com.tauri.dev",
+  "identifier": "com.mins.dbmodeler",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
@@ -12,11 +12,14 @@
   "app": {
     "windows": [
       {
-        "title": "Mins DB Modeler",
-        "width": 800,
-        "height": 600,
+        "title": "MinsDBModeler",
+        "width": 1440,
+        "height": 900,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "label": "main",
+        "minWidth": 1024,
+        "minHeight": 640
       }
     ],
     "security": {

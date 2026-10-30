@@ -1,826 +1,335 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Stage, Layer, Group, Rect, Text, Line } from 'react-konva';
-import type { Attribute, Point } from '@barker-modeler/model-core';
-import { 
-  calculateBarkerEndpointSymbols,
-  calculateDiagramRoutes
+import type {
+  Point,
+  Relationship,
+  BarkerDiagramLayout,
+  EntityShape,
+  CategoryShape,
+  RouteResult,
 } from '@barker-modeler/model-core';
-import { 
-  ZoomIn, 
-  ZoomOut, 
-  Maximize2, 
-  RotateCcw, 
-  Camera, 
-  Search,
-  X
-} from 'lucide-react';
+import { calculateBarkerEndpointSymbols, routeBarkerRelationships } from '@barker-modeler/model-core';
+import { ZoomIn, ZoomOut, Maximize2, RotateCcw, Camera, Search, X } from 'lucide-react';
 
-// Helper to fetch CSS variables for Canvas compatibility
-const getCssVar = (name: string, fallback: string): string => {
-  if (typeof window === 'undefined') return fallback;
-  const val = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return val || fallback;
-};
+/**
+ * Dumb renderer for the Barker layout engine.
+ * Every coordinate and size comes from `layout` (packages/model-core/src/rendering);
+ * this component only maps shape kinds to Konva primitives and forwards events.
+ */
 
-interface KonvaModelerCanvasProps {
-  nodes: any[];
-  edges: any[];
-  onNodesChange?: (changes: any) => void;
-  onEdgesChange?: (changes: any) => void;
-  onNodeDragStop?: (event: any, node: any, latestNodes: any[]) => void;
-  onSelectionChange?: (selection: { nodes: any[]; edges: any[] }) => void;
-  onNodeDoubleClick?: (event: any, node: any) => void;
-  onPaneDoubleClick?: (event: any) => void;
+export interface KonvaModelerCanvasProps {
+  layout: BarkerDiagramLayout;
+  relationships: Relationship[];
   selectedEntityName?: string | null;
   selectedRelationshipId?: string | null;
   viewMode?: 'logical' | 'physical';
+  onSelectEntity?: (name: string | null) => void;
+  onSelectRelationship?: (id: string) => void;
+  onEntityDoubleClick?: (name: string) => void;
+  onPaneDoubleClick?: (event: MouseEvent) => void;
+  /** Root shape moved. `final` is true on drop. */
+  onRootMove?: (name: string, pos: { x: number; y: number }, final: boolean) => void;
+  /** Root shape resized. `final` is true on release. */
+  onRootResize?: (name: string, size: { width: number; height: number }, final: boolean) => void;
 }
 
+// DA#-like palette. Kept in one place so a theme switch only touches this object.
+const PALETTE = {
+  independentFill: '#dbe8c6',
+  dependentFill: '#ffffff',
+  border: '#3b4252',
+  categoryFill: '#fdf7c8',
+  categoryLabel: '#6b5a0a',
+  text: '#1e293b',
+  muted: '#64748b',
+  fk: '#1d4ed8',
+  selected: '#2563eb',
+  edge: '#475569',
+};
+
+const ROUTE_OPTIONS = { padding: 24, laneSpacing: 18 };
+
 export default function KonvaModelerCanvas({
-  nodes,
-  edges,
-  onNodesChange,
-  onNodeDragStop,
-  onSelectionChange,
-  onNodeDoubleClick,
-  onPaneDoubleClick,
+  layout,
+  relationships,
   selectedEntityName,
   selectedRelationshipId,
   viewMode = 'logical',
+  onSelectEntity,
+  onSelectRelationship,
+  onEntityDoubleClick,
+  onPaneDoubleClick,
+  onRootMove,
+  onRootResize,
 }: KonvaModelerCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<any>(null);
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
   const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
-  const [theme, setTheme] = useState({
-    bg: '#f8fafc',
-    border: '#cbd5e1',
-    text: '#0f172a',
-    textMuted: '#64748b',
-    primary: '#2563eb',
-    warning: '#d97706',
-    accent: '#059669',
-    entityBg: '#ffffff',
-    entityBorder: '#94a3b8',
-    entityHeaderBg: '#f1f5f9',
-    subtypeBg: 'rgba(241, 245, 249, 0.6)',
-    subtypeBorder: '#cbd5e1',
-    groupBg: 'rgba(51, 65, 85, 0.1)',
-    subtypeSetBg: 'rgba(234, 179, 8, 0.05)',
-  });
+  const [bg, setBg] = useState('#f8fafc');
+  const style = layout.style;
 
-  // Track dimensions dynamically with a safe ResizeObserver to prevent loops and support all UI state changes (Split/Canvas View)
+  /* ------------------------------ viewport ------------------------------ */
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-
-    let animationFrameId: number;
-    let prevWidth = container.clientWidth || 800;
-    let prevHeight = container.clientHeight || 600;
-
+    let raf = 0;
     const observer = new ResizeObserver((entries) => {
-      if (!entries || entries.length === 0) return;
-      
-      const entry = entries[0];
-      const newWidth = entry.contentRect.width || 800;
-      const newHeight = entry.contentRect.height || 600;
-
-      // Ignore tiny changes less than 3px to avoid infinite oscillation loops
-      if (Math.abs(newWidth - prevWidth) >= 3 || Math.abs(newHeight - prevHeight) >= 3) {
-        prevWidth = newWidth;
-        prevHeight = newHeight;
-
-        cancelAnimationFrame(animationFrameId);
-        animationFrameId = requestAnimationFrame(() => {
-          setDimensions({
-            width: newWidth,
-            height: newHeight
-          });
-        });
-      }
+      const r = entries[0]?.contentRect;
+      if (!r) return;
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => setDimensions({ width: r.width || 800, height: r.height || 600 }));
     });
-
     observer.observe(container);
-
-    setDimensions({
-      width: container.clientWidth || 800,
-      height: container.clientHeight || 600
-    });
-
+    setDimensions({ width: container.clientWidth || 800, height: container.clientHeight || 600 });
     return () => {
       observer.disconnect();
-      cancelAnimationFrame(animationFrameId);
+      cancelAnimationFrame(raf);
     };
   }, []);
 
-  // Update theme colors when CSS variables change (e.g. Light/Dark Mode)
   useEffect(() => {
-    const updateTheme = () => {
-      setTheme({
-        bg: getCssVar('--bg-main', '#f8fafc'),
-        border: getCssVar('--border-color', '#cbd5e1'),
-        text: getCssVar('--text-main', '#0f172a'),
-        textMuted: getCssVar('--text-muted', '#64748b'),
-        primary: getCssVar('--accent-color', '#2563eb'),
-        warning: getCssVar('--warning', '#d97706'),
-        accent: getCssVar('--success', '#059669'),
-        entityBg: getCssVar('--entity-bg', '#ffffff'),
-        entityBorder: getCssVar('--entity-border', '#94a3b8'),
-        entityHeaderBg: getCssVar('--entity-header-bg', '#f1f5f9'),
-        subtypeBg: getCssVar('--subtype-bg', 'rgba(241, 245, 249, 0.6)'),
-        subtypeBorder: getCssVar('--subtype-border', '#cbd5e1'),
-        groupBg: 'rgba(51, 65, 85, 0.1)',
-        subtypeSetBg: 'rgba(234, 179, 8, 0.05)',
-      });
-    };
-    updateTheme();
-    
-    // Listen to theme mutations if any class change on body/html
-    const observer = new MutationObserver(updateTheme);
+    const update = () =>
+      setBg(getComputedStyle(document.documentElement).getPropertyValue('--bg-main').trim() || '#f8fafc');
+    update();
+    const observer = new MutationObserver(update);
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] });
     return () => observer.disconnect();
   }, []);
 
-  // Handle Zoom and Pan using wheel
+  const zoomAround = (center: { x: number; y: number }, newScale: number) => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const old = stage.scaleX();
+    const p = { x: (center.x - stage.x()) / old, y: (center.y - stage.y()) / old };
+    stage.scale({ x: newScale, y: newScale });
+    stage.position({ x: center.x - p.x * newScale, y: center.y - p.y * newScale });
+    stage.batchDraw();
+  };
+
   const handleWheel = (e: any) => {
     e.evt.preventDefault();
     const stage = stageRef.current;
-    if (!stage) return;
-    
-    const oldScale = stage.scaleX();
-    const pointer = stage.getPointerPosition();
+    const pointer = stage?.getPointerPosition();
     if (!pointer) return;
-
-    const mousePointTo = {
-      x: (pointer.x - stage.x()) / oldScale,
-      y: (pointer.y - stage.y()) / oldScale,
-    };
-
-    const speed = 1.1;
-    const newScale = e.evt.deltaY < 0 ? oldScale * speed : oldScale / speed;
-    
-    // Zoom limits
-    if (newScale < 0.15 || newScale > 4) return;
-
-    stage.scale({ x: newScale, y: newScale });
-
-    const newPos = {
-      x: pointer.x - mousePointTo.x * newScale,
-      y: pointer.y - mousePointTo.y * newScale,
-    };
-    stage.position(newPos);
-    stage.batchDraw();
+    const s = e.evt.deltaY < 0 ? stage.scaleX() * 1.1 : stage.scaleX() / 1.1;
+    if (s < 0.15 || s > 4) return;
+    zoomAround(pointer, s);
   };
 
-  const handleStageClick = (e: any) => {
-    console.log("🔴 [Konva Canvas] Stage Clicked. Target:", e.target === stageRef.current ? "Stage Background" : "Child Element");
-    // If clicking directly on stage, clear selection
-    if (e.target === stageRef.current) {
-      onSelectionChange?.({ nodes: [], edges: [] });
-    }
-  };
-
-  const handleStageDblClick = (e: any) => {
-    console.log("🔴 [Konva Canvas] Stage Double Clicked");
-    if (e.target === stageRef.current) {
-      onPaneDoubleClick?.(e.evt);
-    }
-  };
-
-  const handleStageDragStart = (e: any) => {
-    console.log("🔴 [Konva Canvas] Stage Drag Start target:", e.target?.constructor?.name);
-    const stage = stageRef.current;
-    if (stage && e.target !== stage) {
-      console.log("🔴 [Konva Canvas] Stage Drag STOPPED because target is child");
-      stage.stopDrag(); // Prevent stage dragging when a child node/resizer is dragged
-    }
-  };
-
-  // Zoom In
-  const handleZoomIn = () => {
-    const stage = stageRef.current;
-    if (!stage) return;
-    const oldScale = stage.scaleX();
-    const newScale = Math.min(oldScale * 1.25, 4);
-    const center = { x: dimensions.width / 2, y: dimensions.height / 2 };
-    const mousePointTo = {
-      x: (center.x - stage.x()) / oldScale,
-      y: (center.y - stage.y()) / oldScale,
-    };
-    stage.scale({ x: newScale, y: newScale });
-    stage.position({
-      x: center.x - mousePointTo.x * newScale,
-      y: center.y - mousePointTo.y * newScale,
-    });
-    stage.batchDraw();
-  };
-
-  // Zoom Out
-  const handleZoomOut = () => {
-    const stage = stageRef.current;
-    if (!stage) return;
-    const oldScale = stage.scaleX();
-    const newScale = Math.max(oldScale / 1.25, 0.15);
-    const center = { x: dimensions.width / 2, y: dimensions.height / 2 };
-    const mousePointTo = {
-      x: (center.x - stage.x()) / oldScale,
-      y: (center.y - stage.y()) / oldScale,
-    };
-    stage.scale({ x: newScale, y: newScale });
-    stage.position({
-      x: center.x - mousePointTo.x * newScale,
-      y: center.y - mousePointTo.y * newScale,
-    });
-    stage.batchDraw();
-  };
-
-  // Reset Zoom (1:1)
+  const center = () => ({ x: dimensions.width / 2, y: dimensions.height / 2 });
+  const handleZoomIn = () => zoomAround(center(), Math.min((stageRef.current?.scaleX() || 1) * 1.25, 4));
+  const handleZoomOut = () => zoomAround(center(), Math.max((stageRef.current?.scaleX() || 1) / 1.25, 0.15));
   const handleResetZoom = () => {
     const stage = stageRef.current;
     if (!stage) return;
     stage.scale({ x: 1, y: 1 });
-    stage.position({ x: 50, y: 50 });
+    stage.position({ x: 0, y: 0 });
     stage.batchDraw();
   };
 
-  // Fit to Screen (Zoom to Fit)
-  const handleZoomToFit = () => {
+  const handleZoomToFit = useCallback(() => {
     const stage = stageRef.current;
-    if (!stage || nodes.length === 0) return;
-
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    nodes.forEach(n => {
-      if (n.position) {
-        const x = n.position.x ?? 0;
-        const y = n.position.y ?? 0;
-        const w = n.width || 250;
-        const h = n.height || 120;
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x + w > maxX) maxX = x + w;
-        if (y + h > maxY) maxY = y + h;
-      }
+    const b = layout.bounds;
+    if (!stage || b.width <= 0) return;
+    const pad = 60;
+    const scale = Math.max(0.2, Math.min(dimensions.width / (b.width + pad * 2), dimensions.height / (b.height + pad * 2), 1.2));
+    stage.scale({ x: scale, y: scale });
+    stage.position({
+      x: (dimensions.width - b.width * scale) / 2 - b.x * scale,
+      y: (dimensions.height - b.height * scale) / 2 - b.y * scale,
     });
-
-    if (minX === Infinity) {
-      handleResetZoom();
-      return;
-    }
-
-    const padding = 60;
-    const boxWidth = maxX - minX + padding * 2;
-    const boxHeight = maxY - minY + padding * 2;
-    const scaleX = dimensions.width / Math.max(boxWidth, 100);
-    const scaleY = dimensions.height / Math.max(boxHeight, 100);
-    let newScale = Math.min(scaleX, scaleY, 1.2);
-    newScale = Math.max(newScale, 0.2);
-
-    const newX = (dimensions.width - (maxX - minX) * newScale) / 2 - minX * newScale;
-    const newY = (dimensions.height - (maxY - minY) * newScale) / 2 - minY * newScale;
-
-    stage.scale({ x: newScale, y: newScale });
-    stage.position({ x: newX, y: newY });
     stage.batchDraw();
-  };
+  }, [layout.bounds, dimensions]);
 
-  // Export High-Resolution PNG
   const handleExportPNG = () => {
     const stage = stageRef.current;
     if (!stage) return;
-    const dataURL = stage.toDataURL({ pixelRatio: 2 });
     const a = document.createElement('a');
-    a.href = dataURL;
+    a.href = stage.toDataURL({ pixelRatio: 2 });
     a.download = `model_diagram_${Date.now()}.png`;
     a.click();
   };
 
-  // Search & Jump to Node
+  /* ------------------------------- search ------------------------------- */
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-
+  const allShapes = useMemo(() => Array.from(layout.shapes.values()), [layout]);
   const searchResults = searchQuery.trim()
-    ? nodes.filter(n => {
-        const name = n.data?.name || n.id || '';
-        const physical = n.data?.physicalName || '';
+    ? allShapes.filter((s) => {
         const q = searchQuery.toLowerCase();
-        return name.toLowerCase().includes(q) || physical.toLowerCase().includes(q);
+        return s.entity.toLowerCase().includes(q) || s.label.toLowerCase().includes(q);
       })
     : [];
 
-  const handleSelectSearchResult = (node: any) => {
+  const jumpTo = (shape: EntityShape) => {
     const stage = stageRef.current;
     if (!stage) return;
-
-    const posX = node.position?.x ?? 0;
-    const posY = node.position?.y ?? 0;
-    const nodeW = node.width || 250;
-    const nodeH = node.height || 120;
-    const currentScale = stage.scaleX();
-
-    // Center the viewport on this node
-    const targetX = dimensions.width / 2 - (posX + nodeW / 2) * currentScale;
-    const targetY = dimensions.height / 2 - (posY + nodeH / 2) * currentScale;
-
-    stage.position({ x: targetX, y: targetY });
+    const k = stage.scaleX();
+    stage.position({
+      x: dimensions.width / 2 - (shape.x + shape.width / 2) * k,
+      y: dimensions.height / 2 - (shape.y + shape.height / 2) * k,
+    });
     stage.batchDraw();
-
-    onSelectionChange?.({ nodes: [node], edges: [] });
+    onSelectEntity?.(shape.entity);
     setSearchQuery('');
     setIsSearchOpen(false);
   };
 
-  const handleNodeClick = (node: any, e: any) => {
-    console.log("🔴 [Konva Canvas] Node Clicked. ID:", node.id);
-    e.cancelBubble = true; // Stop event bubbling to stage
-    onSelectionChange?.({ nodes: [node], edges: [] });
-  };
+  /* ------------------------------- shapes ------------------------------- */
+  const selectHandlers = (name: string) => ({
+    onClick: (e: any) => {
+      e.cancelBubble = true;
+      onSelectEntity?.(name);
+    },
+    onTap: (e: any) => {
+      e.cancelBubble = true;
+      onSelectEntity?.(name);
+    },
+    onDblClick: (e: any) => {
+      e.cancelBubble = true;
+      onEntityDoubleClick?.(name);
+    },
+  });
 
-  const handleNodeDblClick = (node: any, e: any) => {
-    console.log("🔴 [Konva Canvas] Node Double Clicked. ID:", node.id);
-    e.cancelBubble = true;
-    onNodeDoubleClick?.(e.evt, node);
-  };
+  const renderCategory = (cat: CategoryShape, ox: number, oy: number) => (
+    <Group key={cat.key} x={cat.x - ox} y={cat.y - oy}>
+      <Rect width={cat.width} height={cat.height} fill={PALETTE.categoryFill} cornerRadius={2} listening={false} />
+      <Text
+        text={cat.label}
+        x={style.categoryPadding}
+        y={3}
+        fontSize={style.fontSize - 1}
+        fill={PALETTE.categoryLabel}
+        listening={false}
+      />
+      {cat.children.map((child) => renderShape(child, cat.x, cat.y))}
+    </Group>
+  );
 
-  const handleEdgeClick = (edgeId: string, e: any) => {
-    console.log("🔴 [Konva Canvas] Edge Clicked. ID:", edgeId);
-    e.cancelBubble = true; // Stop event bubbling to stage
-    const selectedEdge = edges.find((ed) => ed.id === edgeId);
-    if (selectedEdge) {
-      onSelectionChange?.({ nodes: [], edges: [selectedEdge] });
-    }
-  };
+  // One recursive function for every depth; shape kind is the only branch.
+  const renderShape = (shape: EntityShape, ox: number, oy: number): React.ReactNode => {
+    const selected = selectedEntityName === shape.entity;
+    const stroke = selected ? PALETTE.selected : PALETTE.border;
+    const strokeWidth = selected ? 2.2 : 1;
 
-  // Node Drag Handlers
-  const handleDragEnd = (node: any, e: any) => {
-    const newX = e.target.x();
-    const newY = e.target.y();
-    const oldX = node.position?.x ?? 0;
-    const oldY = node.position?.y ?? 0;
-    const deltaX = newX - oldX;
-    const deltaY = newY - oldY;
-
-    // Collect all descendant nodes (children, grandchildren) that belong to this supertype/group
-    const descendantIds = new Set<string>();
-    const findDescendants = (parentId: string) => {
-      nodes.forEach((n) => {
-        if (n.parentId === parentId && !descendantIds.has(n.id)) {
-          descendantIds.add(n.id);
-          findDescendants(n.id);
-        }
-      });
-    };
-    findDescendants(node.id);
-
-    const changes: any[] = [
-      {
-        id: node.id,
-        type: 'position',
-        position: { x: newX, y: newY },
-      },
-    ];
-
-    descendantIds.forEach((descId) => {
-      const desc = nodes.find((n) => n.id === descId);
-      if (desc && desc.position) {
-        changes.push({
-          id: descId,
-          type: 'position',
-          position: {
-            x: (desc.position.x ?? 0) + deltaX,
-            y: (desc.position.y ?? 0) + deltaY,
-          },
-        });
-      }
-    });
-
-    // Trigger position update via onNodesChange (matching React Flow changes spec)
-    if (onNodesChange) {
-      onNodesChange(changes);
-    }
-
-    // Trigger drag stop callback
-    if (onNodeDragStop) {
-      const updatedNodes = nodes.map((n) => {
-        if (n.id === node.id) return { ...n, position: { x: newX, y: newY } };
-        if (descendantIds.has(n.id) && n.position) {
-          return {
-            ...n,
-            position: {
-              x: (n.position.x ?? 0) + deltaX,
-              y: (n.position.y ?? 0) + deltaY,
-            },
-          };
-        }
-        return n;
-      });
-      onNodeDragStop(e.evt, { ...node, position: { x: newX, y: newY } }, updatedNodes);
-    }
-  };
-
-  // Render node contents based on node types
-  const renderNode = (node: any) => {
-    if (!node || !node.position) return null;
-    const isSelected = selectedEntityName === node.data?.name || node.selected;
-    const width = isNaN(node.width) || !node.width ? 250 : node.width;
-    const height = isNaN(node.height) || !node.height ? 120 : node.height;
-    const posX = node.position.x ?? 0;
-    const posY = node.position.y ?? 0;
-    const type = node.type || 'entityNode';
-    const isPhysical = viewMode === 'physical' || node.data?.isPhysical;
-
-    if (type === 'supertypeGroup') {
-      // Custom Group Node (Barker Supertype - DA# style olive/green container)
-      const attributes: any[] = node.data?.attributes || [];
-      const superBg = '#e8f0d8'; // Barker supertype signature pale green
-      const superBorder = isSelected ? theme.primary : '#334155';
-
+    if (shape.kind === 'pill') {
       return (
-        <Group
-          key={node.id}
-          x={posX}
-          y={posY}
-          draggable={!node.parentId}
-          onDragStart={(e) => {
-            e.cancelBubble = true;
-          }}
-          onClick={(e) => handleNodeClick(node, e)}
-          onDblClick={(e) => handleNodeDblClick(node, e)}
-          onDragEnd={(e) => handleDragEnd(node, e)}
-        >
+        <Group key={shape.entity} x={shape.x - ox} y={shape.y - oy} {...selectHandlers(shape.entity)}>
           <Rect
-            width={width}
-            height={height}
-            fill={superBg}
-            stroke={superBorder}
-            strokeWidth={isSelected ? 2.5 : 1.5}
-            cornerRadius={10}
-            shadowColor="rgba(0,0,0,0.06)"
-            shadowBlur={4}
-            shadowOffset={{ x: 0, y: 1 }}
-          />
-          {/* Header Title */}
-          <Text
-            text={node.data.label || node.data.name}
-            x={14}
-            y={12}
-            fontSize={13}
-            fontStyle="bold"
-            fill="#1e293b"
-          />
-          {(() => {
-            const classification = node.data.classification;
-            if (!classification) return null;
-            const classColor = classification === 'KEY' ? '#2563eb' : classification === 'MAIN' ? '#059669' : '#d97706';
-            return (
-              <Text
-                text={classification}
-                x={width - 80}
-                y={12}
-                fontSize={9}
-                fontStyle="bold"
-                fill={classColor}
-                align="right"
-                width={70}
-              />
-            );
-          })()}
-
-          {/* Attributes List */}
-          <Group y={36}>
-            {attributes.map((attr, idx) => {
-              const yPos = idx * 20;
-              const isPK = attr.identifier;
-              const isRequired = attr.required;
-              const isFK = attr.fk;
-
-              let marker = 'o';
-              let markerColor = '#64748b';
-              if (isPK) {
-                marker = '#';
-                markerColor = '#0f172a';
-              } else if (isRequired) {
-                marker = '*';
-                markerColor = '#0f172a';
-              }
-
-              return (
-                <Group key={idx} y={yPos} x={14}>
-                  {/* Marker Symbol */}
-                  <Text
-                    text={marker}
-                    x={0}
-                    y={2}
-                    fontSize={11}
-                    fontStyle="bold"
-                    fill={markerColor}
-                  />
-                  {/* Attribute Name */}
-                  <Text
-                    text={attr.name}
-                    x={15}
-                    y={2}
-                    fontSize={11}
-                    fontStyle={isPK ? 'bold' : 'normal'}
-                    fill="#1e293b"
-                    width={width - 120}
-                    ellipsis
-                  />
-                  {/* Domain / Datatype */}
-                  {attr.domain && (
-                    <Text
-                      text={`${attr.domain}${isFK ? ' (FK)' : ''}`}
-                      x={width - 110}
-                      y={2}
-                      fontSize={9}
-                      fill="#64748b"
-                      align="right"
-                      width={80}
-                      ellipsis
-                    />
-                  )}
-                </Group>
-              );
-            })}
-          </Group>
-        </Group>
-      );
-    }
-
-    if (type === 'subtypeSetGroup') {
-      // Subtype Set Group (DA# style yellow-tinted container)
-      return (
-        <Group
-          key={node.id}
-          x={posX}
-          y={posY}
-          draggable={false}
-          onClick={(e) => handleNodeClick(node, e)}
-          onDblClick={(e) => handleNodeDblClick(node, e)}
-        >
-          <Rect
-            width={width}
-            height={height}
-            fill="rgba(254, 249, 195, 0.75)"
-            stroke="#ca8a04"
-            strokeWidth={1.2}
-            cornerRadius={8}
+            width={shape.width}
+            height={shape.height}
+            fill={PALETTE.dependentFill}
+            stroke={stroke}
+            strokeWidth={strokeWidth}
+            cornerRadius={shape.height / 2}
           />
           <Text
-            text={node.data.label}
-            x={10}
-            y={8}
-            fontSize={11}
-            fontStyle="bold"
-            fill="#854d0e"
-          />
-        </Group>
-      );
-    }
-
-    // Entity Node (default)
-    const attributes: Attribute[] = node.data.attributes || [];
-    const isSubtype = node.data.type === 'subtype';
-    
-    // DA# Subtype Pill Badge for leaf subtypes without attributes (e.g. 단체, 메인프레임, 회계)
-    if (isSubtype && attributes.length === 0) {
-      return (
-        <Group
-          key={node.id}
-          x={posX}
-          y={posY}
-          draggable={!node.parentId}
-          onDragStart={(e) => {
-            e.cancelBubble = true;
-          }}
-          onClick={(e) => handleNodeClick(node, e)}
-          onDblClick={(e) => handleNodeDblClick(node, e)}
-          onDragEnd={(e) => handleDragEnd(node, e)}
-        >
-          <Rect
-            width={width}
-            height={height}
-            fill="#ffffff"
-            stroke={isSelected ? theme.primary : '#1e293b'}
-            strokeWidth={isSelected ? 2 : 1.2}
-            cornerRadius={height / 2}
-            shadowColor="rgba(0,0,0,0.06)"
-            shadowBlur={3}
-            shadowOffset={{ x: 0, y: 1 }}
-          />
-          <Text
-            text={node.data.name}
-            x={0}
-            y={(height - 12) / 2}
-            width={width}
-            fontSize={11}
-            fontStyle="bold"
-            fill="#1e293b"
+            text={shape.label}
+            width={shape.width}
+            y={(shape.height - style.fontSize) / 2}
             align="center"
+            fontSize={style.fontSize}
+            fontStyle="bold"
+            fill={PALETTE.text}
+            listening={false}
           />
         </Group>
       );
     }
-    
+
+    const showDomains = viewMode === 'physical';
+    return (
+      <Group key={shape.entity} x={shape.x - ox} y={shape.y - oy} {...selectHandlers(shape.entity)}>
+        <Rect
+          width={shape.width}
+          height={shape.height}
+          fill={shape.independent ? PALETTE.independentFill : PALETTE.dependentFill}
+          stroke={stroke}
+          strokeWidth={strokeWidth}
+          cornerRadius={6}
+        />
+        <Text
+          text={shape.label}
+          x={style.paddingX}
+          y={(style.headerHeight - style.headerFontSize) / 2}
+          fontSize={style.headerFontSize}
+          fontStyle="bold"
+          fill={PALETTE.text}
+          listening={false}
+        />
+        {shape.rows.map((row) => {
+          const ty = row.y + (style.rowHeight - style.fontSize) / 2;
+          const color = row.isFk ? PALETTE.fk : PALETTE.text;
+          return (
+            <Group key={row.name} listening={false}>
+              <Text text={row.marker} x={style.paddingX} y={ty} fontSize={style.fontSize} fontStyle="bold" fill={color} />
+              <Text
+                text={row.isFk ? `${row.name} (FK)` : row.name}
+                x={style.paddingX + style.markerWidth}
+                y={ty}
+                fontSize={style.fontSize}
+                fill={color}
+              />
+              {showDomains && row.domain && (
+                <Text
+                  text={row.domain}
+                  x={0}
+                  width={shape.width - style.paddingX}
+                  y={ty + 1}
+                  align="right"
+                  fontSize={style.fontSize - 1}
+                  fill={PALETTE.muted}
+                />
+              )}
+            </Group>
+          );
+        })}
+        {shape.categories.map((cat) => renderCategory(cat, shape.x, shape.y))}
+      </Group>
+    );
+  };
+
+  const renderRoot = (root: EntityShape) => {
+    const selected = selectedEntityName === root.entity;
     return (
       <Group
-        key={node.id}
-        x={posX}
-        y={posY}
-        draggable={!node.parentId}
+        key={`root:${root.entity}`}
+        x={root.x}
+        y={root.y}
+        draggable={!!onRootMove}
         onDragStart={(e) => {
           e.cancelBubble = true;
         }}
-        onClick={(e) => handleNodeClick(node, e)}
-        onDblClick={(e) => handleNodeDblClick(node, e)}
-        onDragEnd={(e) => handleDragEnd(node, e)}
+        onDragMove={(e) => {
+          if (e.target !== e.currentTarget) return;
+          onRootMove?.(root.entity, { x: Math.round(e.target.x()), y: Math.round(e.target.y()) }, false);
+        }}
+        onDragEnd={(e) => {
+          e.cancelBubble = true;
+          if (e.target !== e.currentTarget) return;
+          onRootMove?.(root.entity, { x: Math.round(e.target.x()), y: Math.round(e.target.y()) }, true);
+        }}
       >
-        {/* Main Entity Body */}
-        <Rect
-          width={width}
-          height={height}
-          fill="#ffffff"
-          stroke={isSelected ? theme.primary : '#1e293b'}
-          strokeWidth={isSelected ? 2 : 1.2}
-          cornerRadius={6}
-          shadowColor="rgba(0,0,0,0.06)"
-          shadowBlur={3}
-          shadowOffset={{ x: 0, y: 1 }}
-        />
-        {/* Header bar */}
-        <Rect
-          width={width}
-          height={30}
-          fill={isSubtype ? '#ffffff' : theme.entityHeaderBg}
-          cornerRadius={[6, 6, 0, 0]}
-        />
-        {/* Bottom line for header */}
-        <Line
-          points={[0, 30, width, 30]}
-          stroke={isSelected ? theme.primary : '#1e293b'}
-          strokeWidth={1}
-        />
-        {/* Title */}
-        <Text
-          text={node.data.name}
-          x={12}
-          y={10}
-          fontSize={12}
-          fontStyle="bold"
-          fill={theme.text}
-          width={width - 80}
-          ellipsis
-        />
-        {/* Entity Type & DA# Classification Label */}
-        {(() => {
-          const classification = node.data.classification;
-          const classColor = classification === 'KEY' ? '#3b82f6' : classification === 'MAIN' ? '#10b981' : classification === 'ACTION' ? '#f59e0b' : (isSubtype ? theme.warning : theme.textMuted);
-          const typeLabel = isPhysical ? 'TABLE' : node.data.type?.toUpperCase() || 'ENTITY';
-          const headerRightText = classification ? `${classification} | ${typeLabel}` : typeLabel;
-          return (
-            <Text
-              text={headerRightText}
-              x={width - 105}
-              y={11}
-              fontSize={8.5}
-              fontStyle="bold"
-              fill={classColor}
-              align="right"
-              width={95}
-            />
-          );
-        })()}
-
-        {/* Attributes List */}
-        <Group y={36}>
-          {attributes.length > 0 ? (
-            attributes.map((attr, idx) => {
-              const yPos = idx * 22;
-              if (yPos + 22 > height - 36) return null; // Simple clip
-              
-              const isPK = attr.identifier || attr.keyType === 'PK';
-              const isAK = attr.keyType === 'AK';
-              const isRequired = attr.required;
-              const isFK = attr.fk || attr.keyType === 'FK';
-
-              let marker = 'o';
-              let markerColor = theme.textMuted;
-              if (isPK) {
-                marker = '#';
-                markerColor = theme.primary;
-              } else if (isAK) {
-                marker = 'U';
-                markerColor = '#8b5cf6';
-              } else if (isRequired) {
-                marker = '*';
-                markerColor = theme.warning;
-              }
-
-              const tagSuffix = [
-                isFK ? 'FK' : '',
-                isAK ? 'AK' : ''
-              ].filter(Boolean).join(',');
-
-              return (
-                <Group key={idx} y={yPos} x={12}>
-                  {/* Marker Symbol */}
-                  <Text
-                    text={marker}
-                    x={0}
-                    y={2}
-                    fontSize={11}
-                    fontStyle="bold"
-                    fill={markerColor}
-                  />
-                  {/* Attribute Name */}
-                  <Text
-                    text={attr.name}
-                    x={15}
-                    y={2}
-                    fontSize={11}
-                    fill={theme.text}
-                    width={width - 120}
-                    ellipsis
-                  />
-                  {/* Domain / Datatype & Tags */}
-                  {(attr.domain || tagSuffix) && (
-                    <Text
-                      text={`${attr.domain || ''}${tagSuffix ? ` (${tagSuffix})` : ''}`}
-                      x={width - 110}
-                      y={2}
-                      fontSize={9}
-                      fill={theme.textMuted}
-                      align="right"
-                      width={80}
-                      ellipsis
-                    />
-                  )}
-                </Group>
-              );
-            })
-          ) : (
-            <Text
-              text="+ Add attribute"
-              x={12}
-              y={8}
-              fontSize={11}
-              fontStyle="italic"
-              fill={theme.textMuted}
-            />
-          )}
-        </Group>
-
-        {/* Node Resize Handle (if selected) */}
-        {isSelected && (
+        {renderShape(root, root.x, root.y)}
+        {selected && root.kind === 'box' && onRootResize && (
           <Rect
-            x={width - 8}
-            y={height - 8}
+            x={root.width - 8}
+            y={root.height - 8}
             width={8}
             height={8}
-            fill={theme.primary}
-            cursor="se-resize"
+            fill={PALETTE.selected}
             draggable
             onDragStart={(e) => {
               e.cancelBubble = true;
             }}
             onDragMove={(e) => {
               e.cancelBubble = true;
-              // Custom resize logic
-              const newWidth = Math.max(150, e.target.x() + 8);
-              const newHeight = Math.max(60, e.target.y() + 8);
-              e.target.x(newWidth - 8);
-              e.target.y(newHeight - 8);
-              
-              if (onNodesChange) {
-                onNodesChange([
-                  {
-                    id: node.id,
-                    type: 'dimensions',
-                    dimensions: { width: newWidth, height: newHeight },
-                  },
-                ]);
-              }
+              onRootResize(root.entity, { width: e.target.x() + 8, height: e.target.y() + 8 }, false);
             }}
             onDragEnd={(e) => {
               e.cancelBubble = true;
-              const newWidth = Math.max(150, e.target.x() + 8);
-              const newHeight = Math.max(60, e.target.y() + 8);
-              
-              if (onNodesChange) {
-                onNodesChange([
-                  {
-                    id: node.id,
-                    type: 'dimensions',
-                    dimensions: { width: newWidth, height: newHeight },
-                  },
-                ]);
-              }
-
-              if (onNodeDragStop) {
-                const updatedNodes = nodes.map((n) =>
-                  n.id === node.id ? { ...n, width: newWidth, height: newHeight } : n
-                );
-                onNodeDragStop(e.evt, { ...node, width: newWidth, height: newHeight }, updatedNodes);
-              }
+              onRootResize(root.entity, { width: e.target.x() + 8, height: e.target.y() + 8 }, true);
             }}
           />
         )}
@@ -828,215 +337,117 @@ export default function KonvaModelerCanvas({
     );
   };
 
-  // Batch calculate collision-free, lane-spaced orthogonal routes for all diagram edges (DA# style)
-  const diagramRoutes = useMemo(() => {
-    const boundingBoxes = nodes.map((n) => ({
-      id: n.id,
-      x: n.position?.x ?? 0,
-      y: n.position?.y ?? 0,
-      width: isNaN(n.width) || !n.width ? 250 : n.width,
-      height: isNaN(n.height) || !n.height ? 120 : n.height,
-    }));
-    return calculateDiagramRoutes(boundingBoxes, edges, { padding: 24, laneSpacing: 18 });
-  }, [nodes, edges]);
+  /* ------------------------------- edges -------------------------------- */
+  const routes = useMemo<Record<string, RouteResult>>(
+    () => routeBarkerRelationships(layout, relationships, ROUTE_OPTIONS),
+    [layout, relationships]
+  );
 
-  // Render Relationship Edges (Custom Barker routing in Canvas)
-  const renderEdge = (edge: any) => {
-    const route = diagramRoutes[edge.id];
-    if (!route || !route.waypoints || route.waypoints.length < 2) return null;
+  const renderEdge = (rel: Relationship) => {
+    const route = routes[rel.id];
+    if (!route || route.waypoints.length < 2) return null;
 
-    const card = (edge.data?.cardinality || 'one_to_many').toString().toLowerCase();
-    const parentPart = (edge.data?.parent_participation || '0..M').toString().toUpperCase();
-    const childPart = (edge.data?.child_participation || '1..1').toString().toUpperCase();
-    
-    // Barker Notation: Determine Many side (Crow's Foot)
-    const isTargetMany = card === 'one_to_many' || card === '1:m' || card === 'many_to_many' || card === 'm:n' || parentPart.includes('M') || parentPart.includes('*');
-    const isSourceMany = card === 'many_to_one' || card === 'm:1' || card === 'many_to_many' || card === 'm:n' || childPart.includes('M') || childPart.includes('*');
+    const card = (rel.cardinality || 'one_to_many').toLowerCase();
+    const parentPart = (rel.parent_participation || '0..M').toUpperCase();
+    const childPart = (rel.child_participation || '1..1').toUpperCase();
+    // Crow's foot sits on the "many" end; each half is dashed when that end is optional.
+    const childMany = card === 'one_to_many' || card === 'many_to_many' || parentPart.includes('M');
+    const parentMany = card === 'many_to_many' || childPart.includes('M');
+    const parentOptional = parentPart.startsWith('0');
+    const childOptional = childPart.startsWith('0');
 
-    // Barker Notation: Solid (Mandatory) vs Dashed (Optional)
-    const isSourceOptional = parentPart.startsWith('0') || parentPart.includes('OPTIONAL');
-    const isTargetOptional = childPart.startsWith('0') || childPart.includes('OPTIONAL');
+    const highlighted = selectedRelationshipId === rel.id || hoveredEdgeId === rel.id;
+    const color = highlighted ? PALETTE.selected : PALETTE.edge;
+    const width = highlighted ? 2.4 : 1.2;
 
-    const isSelected = selectedRelationshipId === edge.id || edge.selected;
-    const isHovered = hoveredEdgeId === edge.id;
-    const isHighlighted = isSelected || isHovered;
-    const strokeColor = isHighlighted ? theme.primary : theme.textMuted;
-    const strokeWidth = isHighlighted ? 2.8 : 1.6;
-
-    const waypoints = route.waypoints;
-    const flatPoints = waypoints.flatMap((p: Point) => [p.x, p.y]);
-
-    // Split waypoints into Source-half and Target-half for solid vs dashed participation styling
-    const midIdx = Math.floor(waypoints.length / 2);
-    const sourceHalfPoints = waypoints.slice(0, midIdx + 1).flatMap((p: Point) => [p.x, p.y]);
-    const targetHalfPoints = waypoints.slice(midIdx).flatMap((p: Point) => [p.x, p.y]);
-
-    // Midpoint for relationship label on hover/select
-    const midPoint = waypoints[midIdx] || waypoints[0];
-    const relLabel = edge.data?.name || `${edge.source} ➔ ${edge.target}`;
-
-    // Calculate Barker Endpoints Symbols (Crow's foot spreading against entity border)
-    const targetSymbols = calculateBarkerEndpointSymbols(
-      route.targetPort,
-      waypoints[waypoints.length - 2] || route.sourcePort,
-      { isMany: isTargetMany, isOptional: isTargetOptional, prongLength: 13, prongSpread: 9.5 }
-    );
-
-    const sourceSymbols = calculateBarkerEndpointSymbols(
-      route.sourcePort,
-      waypoints[1] || route.targetPort,
-      { isMany: isSourceMany, isOptional: isSourceOptional, prongLength: 13, prongSpread: 9.5 }
-    );
+    const pts = route.waypoints;
+    const mid = Math.floor(pts.length / 2);
+    const flat = (list: Point[]) => list.flatMap((p) => [p.x, p.y]);
+    const childSymbols = calculateBarkerEndpointSymbols(route.targetPort, pts[pts.length - 2], {
+      isMany: childMany,
+      isOptional: childOptional,
+      prongLength: 12,
+      prongSpread: 8,
+    });
+    const parentSymbols = calculateBarkerEndpointSymbols(route.sourcePort, pts[1], {
+      isMany: parentMany,
+      isOptional: parentOptional,
+      prongLength: 12,
+      prongSpread: 8,
+    });
+    const label = rel.name || '';
+    const labelPoint = pts[mid];
 
     return (
-      <Group key={edge.id}>
-        {/* Transparent Hitbox for easier relationship selection and hover */}
+      <Group key={rel.id}>
         <Line
-          points={flatPoints}
+          points={flat(pts)}
           stroke="transparent"
-          strokeWidth={16}
-          onClick={(e) => handleEdgeClick(edge.id, e)}
-          onMouseEnter={() => setHoveredEdgeId(edge.id)}
+          strokeWidth={14}
+          onClick={(e) => {
+            e.cancelBubble = true;
+            onSelectRelationship?.(rel.id);
+          }}
+          onMouseEnter={() => setHoveredEdgeId(rel.id)}
           onMouseLeave={() => setHoveredEdgeId(null)}
-          cursor="pointer"
         />
-
-        {/* Source-half (Solid if Mandatory, Dashed if Optional - Barker standard) */}
-        <Line
-          points={sourceHalfPoints}
-          stroke={strokeColor}
-          strokeWidth={strokeWidth}
-          dash={isSourceOptional ? [6, 4] : undefined}
-          lineCap="round"
-          listening={false}
-        />
-
-        {/* Target-half (Solid if Mandatory, Dashed if Optional - Barker standard) */}
-        <Line
-          points={targetHalfPoints}
-          stroke={strokeColor}
-          strokeWidth={strokeWidth}
-          dash={isTargetOptional ? [6, 4] : undefined}
-          lineCap="round"
-          listening={false}
-        />
-
-        {/* Target Side Crow's Foot Lines (Many side: 3 prongs spread out against entity border) */}
-        {targetSymbols.crowFootLines?.map((prong: Point[], i: number) => (
-          <Line
-            key={`target-cf-${i}`}
-            points={[prong[0].x, prong[0].y, prong[1].x, prong[1].y]}
-            stroke={strokeColor}
-            strokeWidth={strokeWidth}
-            lineCap="round"
+        <Line points={flat(pts.slice(0, mid + 1))} stroke={color} strokeWidth={width} dash={parentOptional ? [5, 4] : undefined} listening={false} />
+        <Line points={flat(pts.slice(mid))} stroke={color} strokeWidth={width} dash={childOptional ? [5, 4] : undefined} listening={false} />
+        {[...(childSymbols.crowFootLines || []), ...(parentSymbols.crowFootLines || [])].map((prong, i) => (
+          <Line key={i} points={flat(prong)} stroke={color} strokeWidth={width} listening={false} />
+        ))}
+        {label && labelPoint && (
+          <Text
+            text={label}
+            x={labelPoint.x + 4}
+            y={labelPoint.y - style.fontSize - 2}
+            fontSize={style.fontSize - 1}
+            fill={highlighted ? PALETTE.selected : PALETTE.muted}
             listening={false}
           />
-        ))}
-
-        {/* Source Side Crow's Foot Lines (Many-to-Many or M:1 relations) */}
-        {sourceSymbols.crowFootLines?.map((prong: Point[], i: number) => (
-          <Line
-            key={`source-cf-${i}`}
-            points={[prong[0].x, prong[0].y, prong[1].x, prong[1].y]}
-            stroke={strokeColor}
-            strokeWidth={strokeWidth}
-            lineCap="round"
-            listening={false}
-          />
-        ))}
-
-        {/* Relationship Label (DA# style always-visible clean label badge) */}
-        {midPoint && (relLabel || isHighlighted) && (
-          <Group x={midPoint.x} y={midPoint.y}>
-            <Rect
-              x={-(relLabel.length * 3.2 + 8)}
-              y={-10}
-              width={relLabel.length * 6.4 + 16}
-              height={20}
-              fill={isHighlighted ? theme.bg : '#ffffff'}
-              stroke={isHighlighted ? theme.primary : '#cbd5e1'}
-              strokeWidth={isHighlighted ? 1.5 : 0.8}
-              cornerRadius={4}
-              shadowColor="rgba(0,0,0,0.06)"
-              shadowBlur={3}
-              shadowOffset={{ x: 0, y: 1 }}
-            />
-            <Text
-              x={-(relLabel.length * 3.2 + 6)}
-              y={-5}
-              text={relLabel}
-              fontSize={10}
-              fontStyle={isHighlighted ? 'bold' : 'normal'}
-              fill={isHighlighted ? theme.primary : '#334155'}
-              align="center"
-              listening={false}
-            />
-          </Group>
         )}
       </Group>
     );
   };
 
+  /* ------------------------------- render ------------------------------- */
   return (
-    <div
-      ref={containerRef}
-      style={{
-        width: '100%',
-        height: '100%',
-        backgroundColor: theme.bg,
-        overflow: 'hidden',
-        position: 'relative',
-      }}
-    >
+    <div ref={containerRef} style={{ width: '100%', height: '100%', backgroundColor: bg, overflow: 'hidden', position: 'relative' }}>
       <Stage
         ref={stageRef}
         width={dimensions.width}
         height={dimensions.height}
-        onWheel={handleWheel}
-        onClick={handleStageClick}
-        onDblClick={handleStageDblClick}
-        onDragStart={handleStageDragStart}
         draggable
-      >
-        <Layer>
-          {/* 1. Containers: Supertype Groups first */}
-          {nodes.filter((n) => n.type === 'supertypeGroup').map(renderNode)}
-
-          {/* 2. Subtype Sets */}
-          {nodes.filter((n) => n.type === 'subtypeSetGroup').map(renderNode)}
-
-          {/* 3. Relationship Lines (penetrate into supertypes and land on subtype boxes) */}
-          {edges.map(renderEdge)}
-
-          {/* 4. Entity Nodes and Subtypes (rendered on top of relationship lines) */}
-          {nodes.filter((n) => n.type !== 'supertypeGroup' && n.type !== 'subtypeSetGroup').map(renderNode)}
-        </Layer>
-      </Stage>
-
-      {/* Floating Quick Search Bar (Top Left) */}
-      <div
-        style={{
-          position: 'absolute',
-          top: '16px',
-          left: '16px',
-          zIndex: 20,
-          display: 'flex',
-          flexDirection: 'column',
-          width: '260px',
+        onWheel={handleWheel}
+        onClick={(e) => {
+          if (e.target === stageRef.current) onSelectEntity?.(null);
+        }}
+        onDblClick={(e) => {
+          if (e.target === stageRef.current) onPaneDoubleClick?.(e.evt);
+        }}
+        onDragStart={(e) => {
+          const stage = stageRef.current;
+          if (stage && e.target !== stage) stage.stopDrag();
         }}
       >
+        <Layer>{layout.roots.map(renderRoot)}</Layer>
+        <Layer>{relationships.map(renderEdge)}</Layer>
+      </Stage>
+
+      {/* Quick search */}
+      <div style={{ position: 'absolute', top: 16, left: 16, zIndex: 20, display: 'flex', flexDirection: 'column', width: 260 }}>
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             backgroundColor: 'var(--bg-main, #ffffff)',
             border: '1px solid var(--border-color, #cbd5e1)',
-            borderRadius: '6px',
+            borderRadius: 6,
             padding: '4px 8px',
             boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
           }}
         >
-          <Search size={14} style={{ color: 'var(--text-muted, #94a3b8)', marginRight: '6px' }} />
+          <Search size={14} style={{ color: 'var(--text-muted, #94a3b8)', marginRight: 6 }} />
           <input
             type="text"
             placeholder="엔터티 빠른 검색..."
@@ -1046,14 +457,7 @@ export default function KonvaModelerCanvas({
               setSearchQuery(e.target.value);
               setIsSearchOpen(true);
             }}
-            style={{
-              border: 'none',
-              outline: 'none',
-              background: 'transparent',
-              fontSize: '0.8rem',
-              width: '100%',
-              color: 'var(--text-main, #0f172a)',
-            }}
+            style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: '0.8rem', width: '100%', color: 'var(--text-main, #0f172a)' }}
           />
           {searchQuery && (
             <button
@@ -1061,67 +465,33 @@ export default function KonvaModelerCanvas({
                 setSearchQuery('');
                 setIsSearchOpen(false);
               }}
-              style={{
-                border: 'none',
-                background: 'transparent',
-                cursor: 'pointer',
-                color: 'var(--text-muted, #94a3b8)',
-                padding: '2px',
-              }}
+              style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted, #94a3b8)', padding: 2 }}
             >
               <X size={12} />
             </button>
           )}
         </div>
-
-        {/* Search Results Dropdown */}
         {isSearchOpen && searchResults.length > 0 && (
           <div
             style={{
-              marginTop: '4px',
-              maxHeight: '220px',
+              marginTop: 4,
+              maxHeight: 220,
               overflowY: 'auto',
               backgroundColor: 'var(--bg-main, #ffffff)',
               border: '1px solid var(--border-color, #cbd5e1)',
-              borderRadius: '6px',
+              borderRadius: 6,
               boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
             }}
           >
-            {searchResults.map((n) => (
+            {searchResults.map((s) => (
               <div
-                key={n.id}
-                onClick={() => handleSelectSearchResult(n)}
-                style={{
-                  padding: '6px 10px',
-                  cursor: 'pointer',
-                  borderBottom: '1px solid var(--border-light, #f1f5f9)',
-                  fontSize: '0.75rem',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(59, 130, 246, 0.08)')}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                key={s.entity}
+                onClick={() => jumpTo(s)}
+                style={{ padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid var(--border-light, #f1f5f9)', fontSize: '0.75rem', display: 'flex', justifyContent: 'space-between' }}
               >
-                <div>
-                  <strong style={{ color: 'var(--text-main, #0f172a)' }}>{n.data?.name || n.id}</strong>
-                  {n.data?.physicalName && (
-                    <span style={{ marginLeft: '6px', color: 'var(--text-muted, #94a3b8)', fontSize: '0.7rem' }}>
-                      ({n.data.physicalName})
-                    </span>
-                  )}
-                </div>
-                <span
-                  style={{
-                    fontSize: '0.65rem',
-                    padding: '2px 5px',
-                    borderRadius: '4px',
-                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                    color: 'var(--accent-color, #3b82f6)',
-                    fontWeight: 'bold',
-                  }}
-                >
-                  {n.data?.classification || n.data?.type || 'ENTITY'}
+                <strong style={{ color: 'var(--text-main, #0f172a)' }}>{s.label}</strong>
+                <span style={{ color: 'var(--text-muted, #94a3b8)', fontSize: '0.65rem' }}>
+                  {s.isSubtype ? `SUBTYPE · ${s.parent}` : s.isSupertype ? 'SUPERTYPE' : 'ENTITY'}
                 </span>
               </div>
             ))}
@@ -1129,64 +499,33 @@ export default function KonvaModelerCanvas({
         )}
       </div>
 
-      {/* Floating Canvas Controls (Bottom Right) */}
+      {/* Canvas controls */}
       <div
         style={{
           position: 'absolute',
-          bottom: '16px',
-          right: '16px',
+          bottom: 16,
+          right: 16,
           zIndex: 20,
           display: 'flex',
-          gap: '6px',
+          gap: 6,
           backgroundColor: 'var(--bg-main, #ffffff)',
           border: '1px solid var(--border-color, #cbd5e1)',
-          borderRadius: '8px',
-          padding: '4px',
+          borderRadius: 8,
+          padding: 4,
           boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
         }}
       >
-        <button
-          className="btn btn-icon"
-          title="확대 (Zoom In)"
-          onClick={handleZoomIn}
-          style={{ width: '30px', height: '30px', padding: 0 }}
-        >
-          <ZoomIn size={15} />
-        </button>
-        <button
-          className="btn btn-icon"
-          title="축소 (Zoom Out)"
-          onClick={handleZoomOut}
-          style={{ width: '30px', height: '30px', padding: 0 }}
-        >
-          <ZoomOut size={15} />
-        </button>
-        <div style={{ width: '1px', backgroundColor: 'var(--border-color, #cbd5e1)', margin: '4px 0' }} />
-        <button
-          className="btn btn-icon"
-          title="화면 맞춤 (Zoom to Fit)"
-          onClick={handleZoomToFit}
-          style={{ width: '30px', height: '30px', padding: 0 }}
-        >
-          <Maximize2 size={15} />
-        </button>
-        <button
-          className="btn btn-icon"
-          title="원래 배율 1:1 리셋"
-          onClick={handleResetZoom}
-          style={{ width: '30px', height: '30px', padding: 0 }}
-        >
-          <RotateCcw size={15} />
-        </button>
-        <div style={{ width: '1px', backgroundColor: 'var(--border-color, #cbd5e1)', margin: '4px 0' }} />
-        <button
-          className="btn btn-icon"
-          title="고해상도 다이어그램 이미지(PNG) 내보내기"
-          onClick={handleExportPNG}
-          style={{ width: '30px', height: '30px', padding: 0, color: 'var(--accent-color, #3b82f6)' }}
-        >
-          <Camera size={15} />
-        </button>
+        {[
+          { title: '확대 (Zoom In)', onClick: handleZoomIn, icon: <ZoomIn size={15} /> },
+          { title: '축소 (Zoom Out)', onClick: handleZoomOut, icon: <ZoomOut size={15} /> },
+          { title: '화면 맞춤 (Zoom to Fit)', onClick: handleZoomToFit, icon: <Maximize2 size={15} /> },
+          { title: '원래 배율 1:1 리셋', onClick: handleResetZoom, icon: <RotateCcw size={15} /> },
+          { title: '다이어그램 이미지(PNG) 내보내기', onClick: handleExportPNG, icon: <Camera size={15} /> },
+        ].map((b) => (
+          <button key={b.title} className="btn btn-icon" title={b.title} onClick={b.onClick} style={{ width: 30, height: 30, padding: 0 }}>
+            {b.icon}
+          </button>
+        ))}
       </div>
     </div>
   );

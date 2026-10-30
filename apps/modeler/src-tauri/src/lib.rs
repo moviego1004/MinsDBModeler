@@ -1,6 +1,15 @@
+mod project_fs;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
+    .plugin(tauri_plugin_dialog::init())
+    .invoke_handler(tauri::generate_handler![
+      project_fs::read_project_files,
+      project_fs::write_project_files,
+      project_fs::inspect_folder,
+      project_fs::pick_folder,
+    ])
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(

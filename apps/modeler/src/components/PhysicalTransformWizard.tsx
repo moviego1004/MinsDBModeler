@@ -616,7 +616,7 @@ export default function PhysicalTransformWizard({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <Database size={24} className="text-blue-500" />
-            <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 'bold' }}>논리 $\rightarrow$ 물리 모델 전환 마법사 (Physical Model Converter)</h2>
+            <h2 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 'bold' }}>논리 → 물리 모델 전환 마법사 (Physical Model Converter)</h2>
           </div>
           <button className="btn" onClick={onClose}>취소 (Cancel)</button>
         </div>
